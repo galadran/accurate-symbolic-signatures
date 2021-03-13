@@ -1,0 +1,175 @@
+/*
+ * Running Time: 30s
+ * Special Arguments or Flags: None
+ * Symbolic Model: SVS, Verification Model
+ */
+theory KSIG_UBD
+begin
+section{* Equational Theory *}
+builtins: diffie-hellman
+functions: h/1, KDF/1
+functions: sign/3, pk/1, true/0, false/0
+
+functions: mangle/2
+equations: mangle(sign(m,r1,sk),r2) = sign(m,r2,sk)
+
+
+rule reSign:
+  [In(<sk1,r1>), In(sign(m,r2,sk2))]
+  -->
+  [Out(sign(m,r1,sk1))]
+
+restriction Correctness:
+    "
+    All sig tm tpk #i #j .
+        GoodKey(tpk) @ i & Verified(sig,tm,tpk,tm,tpk,false) @ j
+        ==>
+        F
+    "
+
+restriction NoForgery:
+    "
+    All tpk tm spk sm sig #i #j .
+        GoodKey(tpk) @ i & Verified(sig,sm,spk,tm,tpk,true) @ j
+        ==>
+        sm = tm & spk = tpk
+    "
+
+restriction Consistency:
+    "
+    All sig sm spk tm tpk r1 r2 #i #j .
+        Verified(sig,sm,spk,tm,tpk,r1) @ i & Verified(sig,sm,spk,tm,tpk,r2) @ j
+        ==>
+        r1 = r2
+    "
+
+section{* Protocol Rules *}
+rule Register_pk_normal:
+  [ Fr(~ltk) ]
+  --[OnlyTwice('REG_HON'), Honest($A), GoodKey(pk(~ltk)), Register($A,pk(~ltk)) ]->
+  [ !Ltk($A, ~ltk), !Pk($A, pk(~ltk)), Out(pk(~ltk)) ]
+
+rule Register_pk_evil_validated:
+  [ In(k) ]
+  --[ Corrupt($E), Register($E,pk(k)) ]->
+  [ !Pk($E, pk(k)) ]
+
+rule Init_1:
+  let
+    outmsg = <$I,$R,pk(~ltkI),'g'^~ekI >
+  in
+  [ Fr(~ekI), !Ltk($I, ~ltkI) ]
+  --[OnlyOnce('I1'),SessionBeginI(~ekI),SentI(~ekI,outmsg)]->
+  [ Init_1($I, $R, ~ltkI, ~ekI ), Out(outmsg) ]
+
+rule Resp_1:
+  let ee_key = X^~ekR
+      sigR = sign(<ee_key, 'g'^~ekR, X>,'0', ~ltkR)
+      outmsg = < 'g'^~ekR, sigR >
+  in
+    [ !Ltk($R, ~ltkR)
+    , Fr(~ekR)
+    , In( <$I, $R, pkI, X > ) ]
+  --[OnlyOnce('R1'),SessionBeginR(~ekR)
+      , RecvR(~ekR, <$I, $R, pkI, X > )
+    , SentR(~ekR, outmsg)
+  ]->
+    [ Resp_1( $I, $R, ~ltkR, ~ekR, X,pkI)
+
+    , Out(outmsg)
+    ]
+
+rule Init_2:
+  let sigR = sign(F1,F2,F3)
+      epkI = 'g'^~ekI
+      ee_key = Y^~ekI
+      sigI = sign(<ee_key, epkI, Y>,'0', ~ltkI)
+      pms = ee_key
+      outmsg = sigI
+  in
+    [ Init_1( $I, $R, ~ltkI, ~ekI )
+    , !Pk($R, pkR)
+    , In(<Y, sigR >)
+    ]
+  --[ AcceptedI(~ekI,$I,$R,epkI,Y, KDF(pms))
+    , OnlyOnce('I2')
+    , SentI(~ekI,outmsg)
+    , RecvI(~ekI, <Y, sigR >)
+    , Verified(sigR,F1,pk(F3),<ee_key, Y, epkI>,pkR,true)
+    ]->
+    [ Out(sigI),
+      !SessionKey(~ekI,$I,$R, KDF(pms))
+    ]
+
+rule Resp_2:
+  let sigI = sign(F1,F2,F3)
+      epkR = 'g'^~ekR
+      ee_key = X^~ekR
+      pms = ee_key
+  in
+    [ !Pk($I, pkI)
+    , Resp_1( $I, $R, ~ltkR, ~ekR, X,pkI)
+    , In( sigI)
+    ]
+  --[ AcceptedR(~ekR,$I,$R,X,epkR, KDF(pms))
+    , OnlyOnce('R2')
+    , RecvR(~ekR,sigI)
+    , Verified(sigI,F1,pk(F3),<ee_key, X, epkR>,pkI,true)
+    ]->
+    [ !SessionKey(~ekR,$I,$R, KDF(pms)) ]
+section{* Axioms restricting the rules *}
+
+restriction unique_registration:
+  "All aid apk bid #i #j . Register(aid,apk) @ i & Register(bid,apk) @j ==> aid = bid"
+section{* Lemmas defining security properties *}
+/*
+lemma honest:
+  exists-trace
+  "
+     Ex ephR Iid Rid pubephR key ephI pubephI #i #j .
+     AcceptedR(ephR,Iid,Rid,pubephI,pubephR,key) @ i &
+     AcceptedI(ephI,Iid,Rid,pubephI,pubephR,key) @ j &
+      not (Ex #r. Corrupt(Iid) @ r) &
+      not (Ex #r. Corrupt(Rid) @ r)
+  "
+
+lemma no_uks:
+      "All ekI1 I1 R1 epkI1 Y1 pms #i ekR2 I2 R2 X2 epkR2 #j .
+           AcceptedI(ekI1,I1,R1,epkI1,Y1, KDF(pms)) @ i &
+           AcceptedR(ekR2,I2,R2,X2,epkR2, KDF(pms)) @ j &
+          not (Ex #r. Corrupt(I1) @ r) &
+          not (Ex #r. Corrupt(R2) @ r)
+           ==>
+          I1 = I2 & R1 = R2
+      "
+
+lemma strong_agree:
+      "All ekI1 I1 R1 epkI1 Y1 pms #i ekR2 I2 R2 X2 epkR2 #j .
+           AcceptedI(ekI1,I1,R1,epkI1,Y1, KDF(pms)) @ i &
+           AcceptedR(ekR2,I2,R2,X2,epkR2, KDF(pms)) @ j &
+          not (Ex #r. Corrupt(I1) @ r) &
+          not (Ex #r. Corrupt(R2) @ r)
+          ==>
+          (All m #p . RecvI(ekI1,m) @ p ==> Ex #l . SentR(ekR2,m) @ l)
+          &
+          (All m #p . SentI(ekI1,m) @ p ==> Ex #l . RecvR(ekR2,m) @ l)
+          &
+          (All m #p . RecvR(ekI1,m) @ p ==> Ex #l . SentI(ekR2,m) @ l)
+          &
+          (All m #p . SentR(ekI1,m) @ p ==> Ex #l . RecvI(ekR2,m) @ l)
+          "
+*/
+lemma secrecy_I:
+        "All ekI1 I1 R1 epkI1 Y1 pms #i .
+          AcceptedI(ekI1,I1,R1,epkI1,Y1, KDF(pms)) @ i &
+          not (Ex #r. Corrupt(R1) @ r)
+          ==>
+          not (Ex #j . K(KDF(pms)) @ j)"
+
+lemma secrecy_R:
+        "All ekI1 I1 R1 epkI1 Y1 pms #i .
+          AcceptedR(ekI1,I1,R1,epkI1,Y1, KDF(pms)) @ i &
+          not (Ex #r. Corrupt(I1) @ r)
+          ==>
+          not (Ex #j . K(KDF(pms)) @ j)"
+end

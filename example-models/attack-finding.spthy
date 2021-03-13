@@ -1,0 +1,31 @@
+/* 
+ * This equational theory can be used as a drop in for Tamarin's existing signature model,
+ * however, be sure to add the representation term to each signature creation, typically 
+ * a constant such as '0'. 
+*/
+
+functions: mangle/2, CEOgen/1, weak/1,
+		   verify/3, sign/3, pk/1, true/0
+
+functions: DEOgen/2 [private]
+
+equations: verify(sign(m,r, sk), m, pk(sk)) = true,
+	verify(sign(m1,r, sk), m2, pk(DEOgen(m2,sign(m1,r, sk)))) = true,
+	verify(sign(m1,r,weak(x)),m2,pk(weak(x))) = true,
+	verify(sign(m,r, sk), m, pk(CEOgen(sign(m,r, sk)))) = true,
+	mangle(sign(m,r,sk),repnew)= sign(m,repnew,sk)
+
+rule make_DEO_sk:
+	[In(<m2,sign(m1,r,sk)>)]
+	--[Neq(m1,m2)]->
+	[Out(DEOgen(m2,sign(m1,r,sk)))]
+
+rule ReSign:
+	[ In(<sign(m,r,sk1), sk2 >) ]
+	-->
+	[ Out( sign(m,r,sk2 )) ]
+
+restriction Neq:
+	"
+	All x #i . Neq(x,x) @ i ==> F
+	"

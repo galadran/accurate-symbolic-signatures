@@ -1,0 +1,2244 @@
+theory drkey_v1_prefixed_scenario begin
+
+// Function signature and definition of the equational theory E
+
+functions: adec/2, aenc/2, e1/1 [private], e2/1 [private],
+           e3/1 [private], false/0, fst/1, h/1, pair/2, pk/1, sign/3, snd/1,
+           true/0
+equations:
+    adec(aenc(x.1, pk(x.2)), x.2) = x.1,
+    e1(sign(x, y, z)) = x,
+    e2(sign(x, y, z)) = y,
+    e3(sign(x, y, z)) = z,
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+restriction Correctness:
+  "∀ sig tm tpk #i #j.
+    ((GoodKey( tpk ) @ #i) ∧
+     (Verified( sig, tm, tpk, tm, tpk, false ) @ #j)) ⇒
+    (⊥)"
+  // safety formula
+
+restriction NoForgery:
+  "∀ tpk tm spk sm sig #i #j.
+    ((GoodKey( tpk ) @ #i) ∧
+     (Verified( sig, sm, spk, tm, tpk, true ) @ #j)) ⇒
+    ((sm = tm) ∧ (spk = tpk))"
+  // safety formula
+
+restriction Consistency:
+  "∀ sig sm spk tm tpk r1 r2 #i #j.
+    ((Verified( sig, sm, spk, tm, tpk, r1 ) @ #i) ∧
+     (Verified( sig, sm, spk, tm, tpk, r2 ) @ #j)) ⇒
+    (r1 = r2)"
+  // safety formula
+
+rule (modulo E) keySetup:
+   [
+   Fr( ~sltk ), Fr( ~dltk ), Fr( ~r2ltk ), Fr( ~hltk ),
+   In( <m1ltk, m2ltk, m3ltk> )
+   ]
+  --[
+  Honest( 'D', pk(~dltk) ), Honest( 'S', pk(~sltk) ),
+  Honest( 'R1', pk(~r2ltk) ), Honest( 'H', pk(~hltk) ),
+  GoodKey( pk(~dltk) ), GoodKey( pk(~sltk) ), GoodKey( pk(~r2ltk) ),
+  GoodKey( pk(~hltk) ), Evil( 'M1' ), Evil( 'M2' ), Evil( 'M3' ),
+  OnlyOnce( 'SETUP' )
+  ]->
+   [
+   !Role( 'D', ~dltk ), !Role( 'S', ~sltk ), !Role( 'R1', ~r2ltk ),
+   !Role( 'H', ~hltk ), !Cert( 'D', pk(~dltk) ),
+   !Cert( 'S', pk(~sltk) ), !Cert( 'R1', pk(~r2ltk) ),
+   !Cert( 'H', pk(~hltk) ), !Cert( 'M1', pk(m1ltk) ),
+   !Cert( 'M2', pk(m2ltk) ), !Cert( 'M3', pk(m3ltk) )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_S:
+   [
+   !Role( 'S', ~ltk ), !Cert( 'M1', r1pk ), !Cert( 'R1', r2pk ),
+   !Cert( 'M2', r3pk ), !Cert( 'M3', r4pk ), !Cert( 'D', dpk ),
+   Fr( ~t ), Fr( ~sk )
+   ]
+  --[ OnlyOnce( 'INIT_S' ) ]->
+   [
+   Out( <pk(~sk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t, 
+         sign(<pk(~sk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>, '0', ~ltk)>
+   ),
+   Init_Sess_S( ~sk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>,
+                h(<pk(~sk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>), 'S'
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Init_D:
+   [
+   !Role( 'D', ~ltk ), !Cert( 'M1', r1pk ), !Cert( 'R1', r2pk ),
+   !Cert( 'M2', r3pk ), !Cert( 'M3', r4pk ), !Cert( 'S', spk ),
+   In( <stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t, sig> ),
+   Fr( ~dtsk )
+   ]
+  --[
+  Verified( sig, e1(sig), pk(e3(sig)),
+            <stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>, spk, true
+  ),
+  OnlyOnce( 'INIT_D' )
+  ]->
+   [
+   Out( <pk(~dtsk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t, 
+         sign(<stpk, pk(~dtsk), 'S', 'M1', 'R1', 'M2', 'M3', 'D'>, '0',
+              ~ltk)
+        >
+   ),
+   Init_Sess_D( ~dtsk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>,
+                h(<pk(~dtsk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>), stpk, 'D'
+   )
+   ]
+
+  /*
+  rule (modulo AC) Init_D:
+     [
+     !Role( 'D', ~ltk ), !Cert( 'M1', r1pk ), !Cert( 'R1', r2pk ),
+     !Cert( 'M2', r3pk ), !Cert( 'M3', r4pk ), !Cert( 'S', spk ),
+     In( <stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t, sig> ),
+     Fr( ~dtsk )
+     ]
+    --[
+    Verified( sig, z, pk(z.1),
+              <stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>, spk, true
+    ),
+    OnlyOnce( 'INIT_D' )
+    ]->
+     [
+     Out( <pk(~dtsk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t, 
+           sign(<stpk, pk(~dtsk), 'S', 'M1', 'R1', 'M2', 'M3', 'D'>, '0',
+                ~ltk)
+          >
+     ),
+     Init_Sess_D( ~dtsk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>,
+                  h(<pk(~dtsk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>), stpk, 'D'
+     )
+     ]
+    variants (modulo AC)
+    1. sig   = sig.21
+       z     = e1(sig.21)
+       z.1   = e3(sig.21)
+    
+    2. sig   = sign(z.43, x.67, z.44)
+       z     = z.43
+       z.1   = z.44
+  */
+
+rule (modulo E) Recv_S_1:
+   [
+   Init_Sess_S( ~sk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid, 'S'
+   ),
+   !Role( 'S', ~ltk ), !Cert( 'D', dpk ),
+   In( <dtpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t, sigD> )
+   ]
+  --[
+  Verified( sigD, e1(sigD), pk(e3(sigD)),
+            <pk(~sk), dtpk, 'S', 'M1', 'R1', 'M2', 'M3', 'D'>, dpk, true
+  ),
+  OnlyOnce( 'Recv_S_1' )
+  ]->
+   [
+   Init_Sess_Inter( ~sk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid,
+                    dtpk, 'S'
+   )
+   ]
+
+  /*
+  rule (modulo AC) Recv_S_1:
+     [
+     Init_Sess_S( ~sk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid, 'S'
+     ),
+     !Role( 'S', ~ltk ), !Cert( 'D', dpk ),
+     In( <dtpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t, sigD> )
+     ]
+    --[
+    Verified( sigD, z, pk(z.1),
+              <pk(~sk), dtpk, 'S', 'M1', 'R1', 'M2', 'M3', 'D'>, dpk, true
+    ),
+    OnlyOnce( 'Recv_S_1' )
+    ]->
+     [
+     Init_Sess_Inter( ~sk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid,
+                      dtpk, 'S'
+     )
+     ]
+    variants (modulo AC)
+    1. sigD  = sigD.17
+       z     = e1(sigD.17)
+       z.1   = e3(sigD.17)
+    
+    2. sigD  = sign(z.36, x.57, z.37)
+       z     = z.36
+       z.1   = z.37
+  */
+
+rule (modulo E) Run_R1_TO_H:
+   [
+   !Role( 'R1', ~ltk ),
+   In( <stpk, dtpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t> )
+   ]
+  --[ OnlyOnce( 'R1' ) ]->
+   [
+   R1_H1_In( ~t,
+             <
+              <
+               aenc(h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'S'
+                      >),
+                    stpk), 
+               aenc(h(<~ltk, h(<dtpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'D'
+                      >),
+                    dtpk), 
+               sign(<
+                     h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'S'>), 
+                     stpk, 'S'>,
+                    '0', ~ltk), 
+               sign(<
+                     h(<~ltk, h(<dtpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'D'>), 
+                     dtpk, 'D'>,
+                    '0', ~ltk)
+              >, 
+              stpk, dtpk, 'S', 'M1', 'R1', 'H', 'M3', 'D'>
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Run_R1_TO_M:
+   [
+   !Role( 'R1', ~ltk ),
+   In( <stpk, dtpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t> )
+   ]
+  --[ OnlyOnce( 'R1' ) ]->
+   [
+   Out( <
+         aenc(h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>), 
+                 'S'>),
+              stpk), 
+         aenc(h(<~ltk, h(<dtpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>), 
+                 'D'>),
+              dtpk), 
+         sign(<
+               h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>), 'S'>), 
+               stpk, 'S'>,
+              '0', ~ltk), 
+         sign(<
+               h(<~ltk, h(<dtpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>), 'D'>), 
+               dtpk, 'D'>,
+              '0', ~ltk)
+        >
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) run_H1:
+   [
+   !Role( 'R1', ~ltk ),
+   R1_H1_In( ~t, <m1, stpk, dtpk, 'S', 'M1', 'R1', 'H', 'M3', 'D'> )
+   ]
+  --[
+  OnlyOnce( 'H' ),
+  HKey( h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 
+           'S'>)
+  ),
+  HKey( h(<~ltk, h(<dtpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 
+           'D'>)
+  )
+  ]->
+   [
+   Out( <m1, 
+         aenc(h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'S'
+                >),
+              stpk), 
+         aenc(h(<~ltk, h(<dtpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'D'
+                >),
+              dtpk), 
+         sign(<
+               h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'S'>), 
+               stpk, 'S'>,
+              '0', ~ltk), 
+         sign(<
+               h(<~ltk, h(<dtpk, <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t>), 'D'>), 
+               dtpk, 'D'>,
+              '0', ~ltk)
+        >
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Recv_D:
+   [
+   Init_Sess_D( ~dtsk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid,
+                stpk, 'D'
+   ),
+   !Role( 'D', ~ltk ),
+   In( <aenc(kd1, pk(~dtsk)), aenc(kd2, pk(~dtsk)), 
+        aenc(kd3, pk(~dtsk)), aenc(kd4, pk(~dtsk)), sigd1, sigd2, sigd3, 
+        sigd4>
+   ),
+   !Cert( 'M1', r1pk ), !Cert( 'R1', r2pk ), !Cert( 'M2', r3pk ),
+   !Cert( 'M3', r4pk )
+   ]
+  --[
+  OnlyOnce( 'FINISH_D' ),
+  Verified( sigd1, e1(sigd1), pk(e3(sigd1)), <kd1, pk(~dtsk), 'D'>,
+            r1pk, true
+  ),
+  Verified( sigd2, e1(sigd2), pk(e3(sigd2)), <kd2, pk(~dtsk), 'D'>,
+            r2pk, true
+  ),
+  Verified( sigd3, e1(sigd3), pk(e3(sigd3)), <kd3, pk(~dtsk), 'D'>,
+            r3pk, true
+  ),
+  Verified( sigd4, e1(sigd4), pk(e3(sigd4)), <kd4, pk(~dtsk), 'D'>,
+            r4pk, true
+  ),
+  Finished_D( ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, stpk,
+              pk(~dtsk),
+              h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>)
+  ),
+  SecretKey( kd2 ),
+  SecretKey( h(<~ltk, 
+                h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>)
+  ),
+  D_Believes( kd1, kd2, kd3, kd4,
+              h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>)
+  )
+  ]->
+   [
+   Out( <
+         aenc(h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>),
+              stpk), 
+         sign(<
+               h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>), 
+               stpk, 'S'>,
+              '0', ~ltk)
+        >
+   )
+   ]
+
+  /*
+  rule (modulo AC) Recv_D:
+     [
+     Init_Sess_D( ~dtsk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid,
+                  stpk, 'D'
+     ),
+     !Role( 'D', ~ltk ),
+     In( <aenc(kd1, pk(~dtsk)), aenc(kd2, pk(~dtsk)), 
+          aenc(kd3, pk(~dtsk)), aenc(kd4, pk(~dtsk)), sigd1, sigd2, sigd3, 
+          sigd4>
+     ),
+     !Cert( 'M1', r1pk ), !Cert( 'R1', r2pk ), !Cert( 'M2', r3pk ),
+     !Cert( 'M3', r4pk )
+     ]
+    --[
+    OnlyOnce( 'FINISH_D' ),
+    Verified( sigd1, z, pk(z.1), <kd1, pk(~dtsk), 'D'>, r1pk, true ),
+    Verified( sigd2, z.2, pk(z.3), <kd2, pk(~dtsk), 'D'>, r2pk, true ),
+    Verified( sigd3, z.4, pk(z.5), <kd3, pk(~dtsk), 'D'>, r3pk, true ),
+    Verified( sigd4, z.6, pk(z.7), <kd4, pk(~dtsk), 'D'>, r4pk, true ),
+    Finished_D( ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, stpk,
+                pk(~dtsk),
+                h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>)
+    ),
+    SecretKey( kd2 ),
+    SecretKey( h(<~ltk, 
+                  h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>)
+    ),
+    D_Believes( kd1, kd2, kd3, kd4,
+                h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>)
+    )
+    ]->
+     [
+     Out( <
+           aenc(h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>),
+                stpk), 
+           sign(<
+                 h(<~ltk, h(<stpk, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t>)>), 
+                 stpk, 'S'>,
+                '0', ~ltk)
+          >
+     )
+     ]
+    variants (modulo AC)
+     1. sigd1 = sigd1.38
+        sigd2 = sigd2.39
+        sigd3 = sigd3.40
+        sigd4 = sigd4.41
+        z     = e1(sigd1.38)
+        z.1   = e3(sigd1.38)
+        z.2   = e1(sigd2.39)
+        z.3   = e3(sigd2.39)
+        z.4   = e1(sigd3.40)
+        z.5   = e3(sigd3.40)
+        z.6   = e1(sigd4.41)
+        z.7   = e3(sigd4.41)
+    
+     2. sigd1 = sigd1.183
+        sigd2 = sigd2.184
+        sigd3 = sigd3.185
+        sigd4 = sign(z.202, x.352, z.203)
+        z     = e1(sigd1.183)
+        z.1   = e3(sigd1.183)
+        z.2   = e1(sigd2.184)
+        z.3   = e3(sigd2.184)
+        z.4   = e1(sigd3.185)
+        z.5   = e3(sigd3.185)
+        z.6   = z.202
+        z.7   = z.203
+    
+     3. sigd1 = sigd1.183
+        sigd2 = sigd2.184
+        sigd3 = sign(z.200, x.352, z.201)
+        sigd4 = sigd4.186
+        z     = e1(sigd1.183)
+        z.1   = e3(sigd1.183)
+        z.2   = e1(sigd2.184)
+        z.3   = e3(sigd2.184)
+        z.4   = z.200
+        z.5   = z.201
+        z.6   = e1(sigd4.186)
+        z.7   = e3(sigd4.186)
+    
+     4. sigd1 = sigd1.183
+        sigd2 = sign(z.198, x.352, z.199)
+        sigd3 = sigd3.185
+        sigd4 = sigd4.186
+        z     = e1(sigd1.183)
+        z.1   = e3(sigd1.183)
+        z.2   = z.198
+        z.3   = z.199
+        z.4   = e1(sigd3.185)
+        z.5   = e3(sigd3.185)
+        z.6   = e1(sigd4.186)
+        z.7   = e3(sigd4.186)
+    
+     5. sigd1 = sigd1.186
+        sigd2 = sigd2.187
+        sigd3 = sign(z.203, x.355, z.204)
+        sigd4 = sign(z.205, x.358, z.206)
+        z     = e1(sigd1.186)
+        z.1   = e3(sigd1.186)
+        z.2   = e1(sigd2.187)
+        z.3   = e3(sigd2.187)
+        z.4   = z.203
+        z.5   = z.204
+        z.6   = z.205
+        z.7   = z.206
+    
+     6. sigd1 = sigd1.186
+        sigd2 = sign(z.201, x.355, z.202)
+        sigd3 = sign(z.203, x.358, z.204)
+        sigd4 = sigd4.189
+        z     = e1(sigd1.186)
+        z.1   = e3(sigd1.186)
+        z.2   = z.201
+        z.3   = z.202
+        z.4   = z.203
+        z.5   = z.204
+        z.6   = e1(sigd4.189)
+        z.7   = e3(sigd4.189)
+    
+     7. sigd1 = sigd1.187
+        sigd2 = sign(z.202, x.356, z.203)
+        sigd3 = sigd3.189
+        sigd4 = sign(z.206, x.360, z.207)
+        z     = e1(sigd1.187)
+        z.1   = e3(sigd1.187)
+        z.2   = z.202
+        z.3   = z.203
+        z.4   = e1(sigd3.189)
+        z.5   = e3(sigd3.189)
+        z.6   = z.206
+        z.7   = z.207
+    
+     8. sigd1 = sigd1.189
+        sigd2 = sign(z.204, x.358, z.205)
+        sigd3 = sign(z.206, x.361, z.207)
+        sigd4 = sign(z.208, x.364, z.209)
+        z     = e1(sigd1.189)
+        z.1   = e3(sigd1.189)
+        z.2   = z.204
+        z.3   = z.205
+        z.4   = z.206
+        z.5   = z.207
+        z.6   = z.208
+        z.7   = z.209
+    
+     9. sigd1 = sign(z.101, x.166, z.102)
+        sigd2 = sign(z.103, x.169, z.104)
+        sigd3 = sign(z.105, x.172, z.106)
+        sigd4 = sign(z.107, x.175, z.108)
+        z     = z.101
+        z.1   = z.102
+        z.2   = z.103
+        z.3   = z.104
+        z.4   = z.105
+        z.5   = z.106
+        z.6   = z.107
+        z.7   = z.108
+    
+    10. sigd1 = sign(z.178, x.313, z.179)
+        sigd2 = sign(z.180, x.316, z.181)
+        sigd3 = sign(z.182, x.319, z.183)
+        sigd4 = sigd4.168
+        z     = z.178
+        z.1   = z.179
+        z.2   = z.180
+        z.3   = z.181
+        z.4   = z.182
+        z.5   = z.183
+        z.6   = e1(sigd4.168)
+        z.7   = e3(sigd4.168)
+    
+    11. sigd1 = sign(z.183, x.325, z.184)
+        sigd2 = sign(z.185, x.328, z.186)
+        sigd3 = sigd3.172
+        sigd4 = sigd4.173
+        z     = z.183
+        z.1   = z.184
+        z.2   = z.185
+        z.3   = z.186
+        z.4   = e1(sigd3.172)
+        z.5   = e3(sigd3.172)
+        z.6   = e1(sigd4.173)
+        z.7   = e3(sigd4.173)
+    
+    12. sigd1 = sign(z.187, x.329, z.188)
+        sigd2 = sign(z.189, x.332, z.190)
+        sigd3 = sigd3.176
+        sigd4 = sign(z.193, x.336, z.194)
+        z     = z.187
+        z.1   = z.188
+        z.2   = z.189
+        z.3   = z.190
+        z.4   = e1(sigd3.176)
+        z.5   = e3(sigd3.176)
+        z.6   = z.193
+        z.7   = z.194
+    
+    13. sigd1 = sign(z.188, x.337, z.189)
+        sigd2 = sigd2.176
+        sigd3 = sigd3.177
+        sigd4 = sigd4.178
+        z     = z.188
+        z.1   = z.189
+        z.2   = e1(sigd2.176)
+        z.3   = e3(sigd2.176)
+        z.4   = e1(sigd3.177)
+        z.5   = e3(sigd3.177)
+        z.6   = e1(sigd4.178)
+        z.7   = e3(sigd4.178)
+    
+    14. sigd1 = sign(z.192, x.341, z.193)
+        sigd2 = sigd2.180
+        sigd3 = sign(z.196, x.345, z.197)
+        sigd4 = sigd4.182
+        z     = z.192
+        z.1   = z.193
+        z.2   = e1(sigd2.180)
+        z.3   = e3(sigd2.180)
+        z.4   = z.196
+        z.5   = z.197
+        z.6   = e1(sigd4.182)
+        z.7   = e3(sigd4.182)
+    
+    15. sigd1 = sign(z.193, x.342, z.194)
+        sigd2 = sigd2.181
+        sigd3 = sigd3.182
+        sigd4 = sign(z.199, x.347, z.200)
+        z     = z.193
+        z.1   = z.194
+        z.2   = e1(sigd2.181)
+        z.3   = e3(sigd2.181)
+        z.4   = e1(sigd3.182)
+        z.5   = e3(sigd3.182)
+        z.6   = z.199
+        z.7   = z.200
+    
+    16. sigd1 = sign(z.195, x.344, z.196)
+        sigd2 = sigd2.183
+        sigd3 = sign(z.199, x.348, z.200)
+        sigd4 = sign(z.201, x.351, z.202)
+        z     = z.195
+        z.1   = z.196
+        z.2   = e1(sigd2.183)
+        z.3   = e3(sigd2.183)
+        z.4   = z.199
+        z.5   = z.200
+        z.6   = z.201
+        z.7   = z.202
+  */
+
+rule (modulo E) Recv_S:
+   [
+   Init_Sess_Inter( ~sk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid,
+                    dtpk, 'S'
+   ),
+   In( <aenc(ks1, pk(~sk)), aenc(ks2, pk(~sk)), aenc(ks3, pk(~sk)), 
+        aenc(ks4, pk(~sk)), sigs1, sigs2, sigs3, sigs4, 
+        aenc(kds, pk(~sk)), sigsd>
+   ),
+   !Cert( 'M1', r1pk ), !Cert( 'R1', r2pk ), !Cert( 'M2', r3pk ),
+   !Cert( 'M3', r4pk ), !Cert( 'D', dpk )
+   ]
+  --[
+  OnlyOnce( 'FINISH_S' ),
+  Verified( sigs1, e1(sigs1), pk(e3(sigs1)), <ks1, pk(~sk), 'S'>,
+            r1pk, true
+  ),
+  Verified( sigs2, e1(sigs2), pk(e3(sigs2)), <ks2, pk(~sk), 'S'>,
+            r2pk, true
+  ),
+  Verified( sigs3, e1(sigs3), pk(e3(sigs3)), <ks3, pk(~sk), 'S'>,
+            r3pk, true
+  ),
+  Verified( sigs4, e1(sigs4), pk(e3(sigs4)), <ks4, pk(~sk), 'S'>,
+            r4pk, true
+  ),
+  Verified( sigsd, e1(sigsd), pk(e3(sigsd)), <kds, pk(~sk), 'S'>,
+            dpk, true
+  ),
+  Finished_S( ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, pk(~sk), dtpk,
+              kds
+  ),
+  SecretKey( ks2 ), SecretKey( kds ),
+  S_Believes( ks1, ks2, ks3, ks4, kds )
+  ]->
+   [ ]
+
+  /*
+  rule (modulo AC) Recv_S:
+     [
+     Init_Sess_Inter( ~sk, ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid,
+                      dtpk, 'S'
+     ),
+     In( <aenc(ks1, pk(~sk)), aenc(ks2, pk(~sk)), aenc(ks3, pk(~sk)), 
+          aenc(ks4, pk(~sk)), sigs1, sigs2, sigs3, sigs4, 
+          aenc(kds, pk(~sk)), sigsd>
+     ),
+     !Cert( 'M1', r1pk ), !Cert( 'R1', r2pk ), !Cert( 'M2', r3pk ),
+     !Cert( 'M3', r4pk ), !Cert( 'D', dpk )
+     ]
+    --[
+    OnlyOnce( 'FINISH_S' ),
+    Verified( sigs1, z, pk(z.1), <ks1, pk(~sk), 'S'>, r1pk, true ),
+    Verified( sigs2, z.2, pk(z.3), <ks2, pk(~sk), 'S'>, r2pk, true ),
+    Verified( sigs3, z.4, pk(z.5), <ks3, pk(~sk), 'S'>, r3pk, true ),
+    Verified( sigs4, z.6, pk(z.7), <ks4, pk(~sk), 'S'>, r4pk, true ),
+    Verified( sigsd, z.8, pk(z.9), <kds, pk(~sk), 'S'>, dpk, true ),
+    Finished_S( ~t, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, pk(~sk), dtpk,
+                kds
+    ),
+    SecretKey( ks2 ), SecretKey( kds ),
+    S_Believes( ks1, ks2, ks3, ks4, kds )
+    ]->
+     [ ]
+    variants (modulo AC)
+     1. sigs1 = sigs1.42
+        sigs2 = sigs2.43
+        sigs3 = sigs3.44
+        sigs4 = sigs4.45
+        sigsd = sigsd.46
+        z     = e1(sigs1.42)
+        z.1   = e3(sigs1.42)
+        z.2   = e1(sigs2.43)
+        z.3   = e3(sigs2.43)
+        z.4   = e1(sigs3.44)
+        z.5   = e3(sigs3.44)
+        z.6   = e1(sigs4.45)
+        z.7   = e3(sigs4.45)
+        z.8   = e1(sigsd.46)
+        z.9   = e3(sigsd.46)
+    
+     2. sigs1 = sigs1.171
+        sigs2 = sigs2.172
+        sigs3 = sigs3.173
+        sigs4 = sigs4.174
+        sigsd = sign(z.191, x.326, z.192)
+        z     = e1(sigs1.171)
+        z.1   = e3(sigs1.171)
+        z.2   = e1(sigs2.172)
+        z.3   = e3(sigs2.172)
+        z.4   = e1(sigs3.173)
+        z.5   = e3(sigs3.173)
+        z.6   = e1(sigs4.174)
+        z.7   = e3(sigs4.174)
+        z.8   = z.191
+        z.9   = z.192
+    
+     3. sigs1 = sigs1.171
+        sigs2 = sigs2.172
+        sigs3 = sigs3.173
+        sigs4 = sign(z.189, x.326, z.190)
+        sigsd = sigsd.175
+        z     = e1(sigs1.171)
+        z.1   = e3(sigs1.171)
+        z.2   = e1(sigs2.172)
+        z.3   = e3(sigs2.172)
+        z.4   = e1(sigs3.173)
+        z.5   = e3(sigs3.173)
+        z.6   = z.189
+        z.7   = z.190
+        z.8   = e1(sigsd.175)
+        z.9   = e3(sigsd.175)
+    
+     4. sigs1 = sigs1.171
+        sigs2 = sigs2.172
+        sigs3 = sign(z.187, x.326, z.188)
+        sigs4 = sigs4.174
+        sigsd = sigsd.175
+        z     = e1(sigs1.171)
+        z.1   = e3(sigs1.171)
+        z.2   = e1(sigs2.172)
+        z.3   = e3(sigs2.172)
+        z.4   = z.187
+        z.5   = z.188
+        z.6   = e1(sigs4.174)
+        z.7   = e3(sigs4.174)
+        z.8   = e1(sigsd.175)
+        z.9   = e3(sigsd.175)
+    
+     5. sigs1 = sigs1.171
+        sigs2 = sign(z.185, x.326, z.186)
+        sigs3 = sigs3.173
+        sigs4 = sigs4.174
+        sigsd = sigsd.175
+        z     = e1(sigs1.171)
+        z.1   = e3(sigs1.171)
+        z.2   = z.185
+        z.3   = z.186
+        z.4   = e1(sigs3.173)
+        z.5   = e3(sigs3.173)
+        z.6   = e1(sigs4.174)
+        z.7   = e3(sigs4.174)
+        z.8   = e1(sigsd.175)
+        z.9   = e3(sigsd.175)
+    
+     6. sigs1 = sigs1.174
+        sigs2 = sigs2.175
+        sigs3 = sigs3.176
+        sigs4 = sign(z.192, x.329, z.193)
+        sigsd = sign(z.194, x.332, z.195)
+        z     = e1(sigs1.174)
+        z.1   = e3(sigs1.174)
+        z.2   = e1(sigs2.175)
+        z.3   = e3(sigs2.175)
+        z.4   = e1(sigs3.176)
+        z.5   = e3(sigs3.176)
+        z.6   = z.192
+        z.7   = z.193
+        z.8   = z.194
+        z.9   = z.195
+    
+     7. sigs1 = sigs1.174
+        sigs2 = sigs2.175
+        sigs3 = sign(z.190, x.329, z.191)
+        sigs4 = sign(z.192, x.332, z.193)
+        sigsd = sigsd.178
+        z     = e1(sigs1.174)
+        z.1   = e3(sigs1.174)
+        z.2   = e1(sigs2.175)
+        z.3   = e3(sigs2.175)
+        z.4   = z.190
+        z.5   = z.191
+        z.6   = z.192
+        z.7   = z.193
+        z.8   = e1(sigsd.178)
+        z.9   = e3(sigsd.178)
+    
+     8. sigs1 = sigs1.174
+        sigs2 = sign(z.188, x.329, z.189)
+        sigs3 = sign(z.190, x.332, z.191)
+        sigs4 = sigs4.177
+        sigsd = sigsd.178
+        z     = e1(sigs1.174)
+        z.1   = e3(sigs1.174)
+        z.2   = z.188
+        z.3   = z.189
+        z.4   = z.190
+        z.5   = z.191
+        z.6   = e1(sigs4.177)
+        z.7   = e3(sigs4.177)
+        z.8   = e1(sigsd.178)
+        z.9   = e3(sigsd.178)
+    
+     9. sigs1 = sigs1.175
+        sigs2 = sigs2.176
+        sigs3 = sign(z.191, x.330, z.192)
+        sigs4 = sigs4.178
+        sigsd = sign(z.195, x.334, z.196)
+        z     = e1(sigs1.175)
+        z.1   = e3(sigs1.175)
+        z.2   = e1(sigs2.176)
+        z.3   = e3(sigs2.176)
+        z.4   = z.191
+        z.5   = z.192
+        z.6   = e1(sigs4.178)
+        z.7   = e3(sigs4.178)
+        z.8   = z.195
+        z.9   = z.196
+    
+    10. sigs1 = sigs1.175
+        sigs2 = sign(z.189, x.330, z.190)
+        sigs3 = sigs3.177
+        sigs4 = sign(z.193, x.334, z.194)
+        sigsd = sigsd.179
+        z     = e1(sigs1.175)
+        z.1   = e3(sigs1.175)
+        z.2   = z.189
+        z.3   = z.190
+        z.4   = e1(sigs3.177)
+        z.5   = e3(sigs3.177)
+        z.6   = z.193
+        z.7   = z.194
+        z.8   = e1(sigsd.179)
+        z.9   = e3(sigsd.179)
+    
+    11. sigs1 = sigs1.176
+        sigs2 = sign(z.190, x.331, z.191)
+        sigs3 = sigs3.178
+        sigs4 = sigs4.179
+        sigsd = sign(z.196, x.336, z.197)
+        z     = e1(sigs1.176)
+        z.1   = e3(sigs1.176)
+        z.2   = z.190
+        z.3   = z.191
+        z.4   = e1(sigs3.178)
+        z.5   = e3(sigs3.178)
+        z.6   = e1(sigs4.179)
+        z.7   = e3(sigs4.179)
+        z.8   = z.196
+        z.9   = z.197
+    
+    12. sigs1 = sigs1.177
+        sigs2 = sigs2.178
+        sigs3 = sign(z.193, x.332, z.194)
+        sigs4 = sign(z.195, x.335, z.196)
+        sigsd = sign(z.197, x.338, z.198)
+        z     = e1(sigs1.177)
+        z.1   = e3(sigs1.177)
+        z.2   = e1(sigs2.178)
+        z.3   = e3(sigs2.178)
+        z.4   = z.193
+        z.5   = z.194
+        z.6   = z.195
+        z.7   = z.196
+        z.8   = z.197
+        z.9   = z.198
+    
+    13. sigs1 = sigs1.177
+        sigs2 = sign(z.191, x.332, z.192)
+        sigs3 = sign(z.193, x.335, z.194)
+        sigs4 = sign(z.195, x.338, z.196)
+        sigsd = sigsd.181
+        z     = e1(sigs1.177)
+        z.1   = e3(sigs1.177)
+        z.2   = z.191
+        z.3   = z.192
+        z.4   = z.193
+        z.5   = z.194
+        z.6   = z.195
+        z.7   = z.196
+        z.8   = e1(sigsd.181)
+        z.9   = e3(sigsd.181)
+    
+    14. sigs1 = sigs1.178
+        sigs2 = sign(z.192, x.333, z.193)
+        sigs3 = sigs3.180
+        sigs4 = sign(z.196, x.337, z.197)
+        sigsd = sign(z.198, x.340, z.199)
+        z     = e1(sigs1.178)
+        z.1   = e3(sigs1.178)
+        z.2   = z.192
+        z.3   = z.193
+        z.4   = e1(sigs3.180)
+        z.5   = e3(sigs3.180)
+        z.6   = z.196
+        z.7   = z.197
+        z.8   = z.198
+        z.9   = z.199
+    
+    15. sigs1 = sigs1.178
+        sigs2 = sign(z.192, x.333, z.193)
+        sigs3 = sign(z.194, x.336, z.195)
+        sigs4 = sigs4.181
+        sigsd = sign(z.198, x.340, z.199)
+        z     = e1(sigs1.178)
+        z.1   = e3(sigs1.178)
+        z.2   = z.192
+        z.3   = z.193
+        z.4   = z.194
+        z.5   = z.195
+        z.6   = e1(sigs4.181)
+        z.7   = e3(sigs4.181)
+        z.8   = z.198
+        z.9   = z.199
+    
+    16. sigs1 = sigs1.180
+        sigs2 = sign(z.194, x.335, z.195)
+        sigs3 = sign(z.196, x.338, z.197)
+        sigs4 = sign(z.198, x.341, z.199)
+        sigsd = sign(z.200, x.344, z.201)
+        z     = e1(sigs1.180)
+        z.1   = e3(sigs1.180)
+        z.2   = z.194
+        z.3   = z.195
+        z.4   = z.196
+        z.5   = z.197
+        z.6   = z.198
+        z.7   = z.199
+        z.8   = z.200
+        z.9   = z.201
+    
+    17. sigs1 = sign(z.111, x.182, z.112)
+        sigs2 = sign(z.113, x.185, z.114)
+        sigs3 = sign(z.115, x.188, z.116)
+        sigs4 = sign(z.117, x.191, z.118)
+        sigsd = sign(z.119, x.194, z.120)
+        z     = z.111
+        z.1   = z.112
+        z.2   = z.113
+        z.3   = z.114
+        z.4   = z.115
+        z.5   = z.116
+        z.6   = z.117
+        z.7   = z.118
+        z.8   = z.119
+        z.9   = z.120
+    
+    18. sigs1 = sign(z.164, x.283, z.165)
+        sigs2 = sign(z.166, x.286, z.167)
+        sigs3 = sign(z.168, x.289, z.169)
+        sigs4 = sign(z.170, x.292, z.171)
+        sigsd = sigsd.156
+        z     = z.164
+        z.1   = z.165
+        z.2   = z.166
+        z.3   = z.167
+        z.4   = z.168
+        z.5   = z.169
+        z.6   = z.170
+        z.7   = z.171
+        z.8   = e1(sigsd.156)
+        z.9   = e3(sigsd.156)
+    
+    19. sigs1 = sign(z.168, x.293, z.169)
+        sigs2 = sign(z.170, x.296, z.171)
+        sigs3 = sign(z.172, x.299, z.173)
+        sigs4 = sigs4.159
+        sigsd = sigsd.160
+        z     = z.168
+        z.1   = z.169
+        z.2   = z.170
+        z.3   = z.171
+        z.4   = z.172
+        z.5   = z.173
+        z.6   = e1(sigs4.159)
+        z.7   = e3(sigs4.159)
+        z.8   = e1(sigsd.160)
+        z.9   = e3(sigsd.160)
+    
+    20. sigs1 = sign(z.172, x.297, z.173)
+        sigs2 = sign(z.174, x.300, z.175)
+        sigs3 = sign(z.176, x.303, z.177)
+        sigs4 = sigs4.163
+        sigsd = sign(z.180, x.307, z.181)
+        z     = z.172
+        z.1   = z.173
+        z.2   = z.174
+        z.3   = z.175
+        z.4   = z.176
+        z.5   = z.177
+        z.6   = e1(sigs4.163)
+        z.7   = e3(sigs4.163)
+        z.8   = z.180
+        z.9   = z.181
+    
+    21. sigs1 = sign(z.172, x.303, z.173)
+        sigs2 = sign(z.174, x.306, z.175)
+        sigs3 = sigs3.162
+        sigs4 = sigs4.163
+        sigsd = sigsd.164
+        z     = z.172
+        z.1   = z.173
+        z.2   = z.174
+        z.3   = z.175
+        z.4   = e1(sigs3.162)
+        z.5   = e3(sigs3.162)
+        z.6   = e1(sigs4.163)
+        z.7   = e3(sigs4.163)
+        z.8   = e1(sigsd.164)
+        z.9   = e3(sigsd.164)
+    
+    22. sigs1 = sign(z.176, x.307, z.177)
+        sigs2 = sign(z.178, x.310, z.179)
+        sigs3 = sigs3.166
+        sigs4 = sign(z.182, x.314, z.183)
+        sigsd = sigsd.168
+        z     = z.176
+        z.1   = z.177
+        z.2   = z.178
+        z.3   = z.179
+        z.4   = e1(sigs3.166)
+        z.5   = e3(sigs3.166)
+        z.6   = z.182
+        z.7   = z.183
+        z.8   = e1(sigsd.168)
+        z.9   = e3(sigsd.168)
+    
+    23. sigs1 = sign(z.176, x.313, z.177)
+        sigs2 = sigs2.165
+        sigs3 = sigs3.166
+        sigs4 = sigs4.167
+        sigsd = sigsd.168
+        z     = z.176
+        z.1   = z.177
+        z.2   = e1(sigs2.165)
+        z.3   = e3(sigs2.165)
+        z.4   = e1(sigs3.166)
+        z.5   = e3(sigs3.166)
+        z.6   = e1(sigs4.167)
+        z.7   = e3(sigs4.167)
+        z.8   = e1(sigsd.168)
+        z.9   = e3(sigsd.168)
+    
+    24. sigs1 = sign(z.177, x.308, z.178)
+        sigs2 = sign(z.179, x.311, z.180)
+        sigs3 = sigs3.167
+        sigs4 = sigs4.168
+        sigsd = sign(z.185, x.316, z.186)
+        z     = z.177
+        z.1   = z.178
+        z.2   = z.179
+        z.3   = z.180
+        z.4   = e1(sigs3.167)
+        z.5   = e3(sigs3.167)
+        z.6   = e1(sigs4.168)
+        z.7   = e3(sigs4.168)
+        z.8   = z.185
+        z.9   = z.186
+    
+    25. sigs1 = sign(z.179, x.310, z.180)
+        sigs2 = sign(z.181, x.313, z.182)
+        sigs3 = sigs3.169
+        sigs4 = sign(z.185, x.317, z.186)
+        sigsd = sign(z.187, x.320, z.188)
+        z     = z.179
+        z.1   = z.180
+        z.2   = z.181
+        z.3   = z.182
+        z.4   = e1(sigs3.169)
+        z.5   = e3(sigs3.169)
+        z.6   = z.185
+        z.7   = z.186
+        z.8   = z.187
+        z.9   = z.188
+    
+    26. sigs1 = sign(z.180, x.317, z.181)
+        sigs2 = sigs2.169
+        sigs3 = sign(z.184, x.321, z.185)
+        sigs4 = sigs4.171
+        sigsd = sigsd.172
+        z     = z.180
+        z.1   = z.181
+        z.2   = e1(sigs2.169)
+        z.3   = e3(sigs2.169)
+        z.4   = z.184
+        z.5   = z.185
+        z.6   = e1(sigs4.171)
+        z.7   = e3(sigs4.171)
+        z.8   = e1(sigsd.172)
+        z.9   = e3(sigsd.172)
+    
+    27. sigs1 = sign(z.181, x.318, z.182)
+        sigs2 = sigs2.170
+        sigs3 = sigs3.171
+        sigs4 = sign(z.187, x.323, z.188)
+        sigsd = sigsd.173
+        z     = z.181
+        z.1   = z.182
+        z.2   = e1(sigs2.170)
+        z.3   = e3(sigs2.170)
+        z.4   = e1(sigs3.171)
+        z.5   = e3(sigs3.171)
+        z.6   = z.187
+        z.7   = z.188
+        z.8   = e1(sigsd.173)
+        z.9   = e3(sigsd.173)
+    
+    28. sigs1 = sign(z.182, x.319, z.183)
+        sigs2 = sigs2.171
+        sigs3 = sigs3.172
+        sigs4 = sigs4.173
+        sigsd = sign(z.190, x.325, z.191)
+        z     = z.182
+        z.1   = z.183
+        z.2   = e1(sigs2.171)
+        z.3   = e3(sigs2.171)
+        z.4   = e1(sigs3.172)
+        z.5   = e3(sigs3.172)
+        z.6   = e1(sigs4.173)
+        z.7   = e3(sigs4.173)
+        z.8   = z.190
+        z.9   = z.191
+    
+    29. sigs1 = sign(z.183, x.320, z.184)
+        sigs2 = sigs2.172
+        sigs3 = sign(z.187, x.324, z.188)
+        sigs4 = sign(z.189, x.327, z.190)
+        sigsd = sigsd.175
+        z     = z.183
+        z.1   = z.184
+        z.2   = e1(sigs2.172)
+        z.3   = e3(sigs2.172)
+        z.4   = z.187
+        z.5   = z.188
+        z.6   = z.189
+        z.7   = z.190
+        z.8   = e1(sigsd.175)
+        z.9   = e3(sigsd.175)
+    
+    30. sigs1 = sign(z.184, x.321, z.185)
+        sigs2 = sigs2.173
+        sigs3 = sigs3.174
+        sigs4 = sign(z.190, x.326, z.191)
+        sigsd = sign(z.192, x.329, z.193)
+        z     = z.184
+        z.1   = z.185
+        z.2   = e1(sigs2.173)
+        z.3   = e3(sigs2.173)
+        z.4   = e1(sigs3.174)
+        z.5   = e3(sigs3.174)
+        z.6   = z.190
+        z.7   = z.191
+        z.8   = z.192
+        z.9   = z.193
+    
+    31. sigs1 = sign(z.184, x.321, z.185)
+        sigs2 = sigs2.173
+        sigs3 = sign(z.188, x.325, z.189)
+        sigs4 = sigs4.175
+        sigsd = sign(z.192, x.329, z.193)
+        z     = z.184
+        z.1   = z.185
+        z.2   = e1(sigs2.173)
+        z.3   = e3(sigs2.173)
+        z.4   = z.188
+        z.5   = z.189
+        z.6   = e1(sigs4.175)
+        z.7   = e3(sigs4.175)
+        z.8   = z.192
+        z.9   = z.193
+    
+    32. sigs1 = sign(z.186, x.323, z.187)
+        sigs2 = sigs2.175
+        sigs3 = sign(z.190, x.327, z.191)
+        sigs4 = sign(z.192, x.330, z.193)
+        sigsd = sign(z.194, x.333, z.195)
+        z     = z.186
+        z.1   = z.187
+        z.2   = e1(sigs2.175)
+        z.3   = e3(sigs2.175)
+        z.4   = z.190
+        z.5   = z.191
+        z.6   = z.192
+        z.7   = z.193
+        z.8   = z.194
+        z.9   = z.195
+  */
+
+lemma secretKey:
+  all-traces "∀ k #i. (SecretKey( k ) @ #i) ⇒ (¬(∃ #j. K( k ) @ #j))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ k #i. (SecretKey( k ) @ #i) ∧ ∃ #j. (K( k ) @ #j)"
+*/
+by sorry
+
+lemma no_confusion:
+  all-traces
+  "∀ ks1 ks2 ks3 ks4 kd1 kd2 kd3 kd4 kds #i #j.
+    ((S_Believes( ks1, ks2, ks3, ks4, kds ) @ #i) ∧
+     (D_Believes( kd1, kd2, kd3, kd4, kds ) @ #j)) ⇒
+    ((¬(∃ #k1. HKey( ks3 ) @ #k1)) ∨ (¬(∃ #k2. HKey( kd3 ) @ #k2)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ ks1 ks2 ks3 ks4 kd1 kd2 kd3 kd4 kds #i #j.
+  (S_Believes( ks1, ks2, ks3, ks4, kds ) @ #i) ∧
+  (D_Believes( kd1, kd2, kd3, kd4, kds ) @ #j)
+ ∧
+  (∃ #k1. (HKey( ks3 ) @ #k1)) ∧ (∃ #k2. (HKey( kd3 ) @ #k2))"
+*/
+simplify
+solve( Init_Sess_Inter( ~sk, ~t,
+                        <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid, dtpk, 'S'
+       ) ▶₀ #i )
+  case Recv_S_1
+  solve( !Cert( 'M1', r1pk ) ▶₂ #i )
+    case keySetup
+    solve( !Cert( 'R1', r2pk ) ▶₃ #i )
+      case keySetup
+      solve( !Cert( 'M2', r3pk ) ▶₄ #i )
+        case keySetup
+        solve( !Cert( 'M3', r4pk ) ▶₅ #i )
+          case keySetup
+          solve( !Cert( 'D', dpk ) ▶₆ #i )
+            case keySetup
+            solve( Init_Sess_D( ~dtsk, ~t.1,
+                                <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, sid, stpk, 'D'
+                   ) ▶₀ #j )
+              case Init_D
+              solve( !Role( 'D', ~ltk ) ▶₁ #j )
+                case keySetup
+                solve( !Cert( 'M1', r1pk ) ▶₃ #j )
+                  case keySetup
+                  solve( !Cert( 'R1', r2pk ) ▶₄ #j )
+                    case keySetup
+                    solve( !Cert( 'M2', r3pk ) ▶₅ #j )
+                      case keySetup
+                      solve( !Cert( 'M3', r4pk ) ▶₆ #j )
+                        case keySetup
+                        solve( HKey( ks3 ) @ #k1 )
+                          case run_H1_case_1
+                          solve( !Role( 'R1', ~ltk ) ▶₀ #k1 )
+                            case keySetup
+                            solve( R1_H1_In( ~t.1,
+                                             <m1, stpk, dtpk.1, 'S', 'M1', 'R1', 'H', 'M3', 'D'>
+                                   ) ▶₁ #k1 )
+                              case Run_R1_TO_H
+                              solve( HKey( kd3 ) @ #k2 )
+                                case run_H1_case_1
+                                solve( !KU( sign(<
+                                                  h(<~dltk, 
+                                                     h(<stpk.1, <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, 
+                                                        ~t.2>)
+                                                    >), 
+                                                  pk(~sk), 'S'>,
+                                                 x.1, ~dltk)
+                                       ) @ #vk.18 )
+                                  case Recv_D
+                                  solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x.1, ~ltk) ) @ #vk.30 )
+                                    case c_sign
+                                    solve( !KU( ~t.2 ) @ #vk.68 )
+                                      case Init_S
+                                      solve( !KU( ~t.1 ) @ #vk.73 )
+                                        case Init_S
+                                        by solve( !KU( ~ltk ) @ #vk.74 )
+                                      next
+                                        case fresh
+                                        by solve( !KU( ~ltk ) @ #vk.75 )
+                                      qed
+                                    next
+                                      case fresh
+                                      solve( !KU( ~t.1 ) @ #vk.74 )
+                                        case Init_S
+                                        by solve( !KU( ~ltk ) @ #vk.75 )
+                                      next
+                                        case fresh
+                                        by solve( !KU( ~ltk ) @ #vk.76 )
+                                      qed
+                                    qed
+                                  next
+                                    case run_H1_case_1
+                                    solve( !KU( sign(<pk(~sk), dtpk, 'S', 'M1', 'R1', 'M2', 'M3', 
+                                                      'D'>,
+                                                     x.1, ~dltk)
+                                           ) @ #vk.59 )
+                                      case Init_D
+                                      solve( !KU( sign(<pk(~sk), 
+                                                        <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2>,
+                                                       x.1, ~ltk.1)
+                                             ) @ #vk.68 )
+                                        case Init_S
+                                        solve( !KU( aenc(ks1, pk(~sk)) ) @ #vk.12 )
+                                          case Recv_D
+                                          solve( !KU( aenc(ks4, pk(~sk)) ) @ #vk.24 )
+                                            case Recv_D
+                                            solve( !KU( aenc(kd1, pk(~dtsk)) ) @ #vk.31 )
+                                              case c_aenc
+                                              solve( !KU( aenc(kd4, pk(~dtsk)) ) @ #vk.35 )
+                                                case c_aenc
+                                                solve( !KU( ~t.1 ) @ #vk.68 )
+                                                  case Init_S
+                                                  solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                         ) @ #vk.32 )
+                                                    case c_sign
+                                                    by solve( !KU( ~ltk ) @ #vk.73 )
+                                                  next
+                                                    case run_H1
+                                                    solve( !KU( aenc(h(<~ltk, 
+                                                                        h(<pk(~sk), 
+                                                                           <'S', 'M1', 'R1', 'H', 
+                                                                            'M3', 'D'>, 
+                                                                           ~t>), 
+                                                                        'S'>),
+                                                                     pk(~dtsk))
+                                                           ) @ #vk.36 )
+                                                      case c_aenc
+                                                      solve( !KU( h(<~ltk, 
+                                                                     h(<pk(~sk), 
+                                                                        <'S', 'M1', 'R1', 'H', 
+                                                                         'M3', 'D'>, 
+                                                                        ~t>), 
+                                                                     'S'>)
+                                                             ) @ #vk.68 )
+                                                        case c_h
+                                                        by solve( !KU( ~ltk ) @ #vk.71 )
+                                                      next
+                                                        case run_H1
+                                                        by solve( !KU( ~sk ) @ #vk.69 )
+                                                      qed
+                                                    qed
+                                                  qed
+                                                next
+                                                  case fresh
+                                                  solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                         ) @ #vk.32 )
+                                                    case c_sign
+                                                    by solve( !KU( ~ltk ) @ #vk.74 )
+                                                  next
+                                                    case run_H1
+                                                    solve( !KU( aenc(h(<~ltk, 
+                                                                        h(<pk(~sk), 
+                                                                           <'S', 'M1', 'R1', 'H', 
+                                                                            'M3', 'D'>, 
+                                                                           ~t.1>), 
+                                                                        'S'>),
+                                                                     pk(~dtsk))
+                                                           ) @ #vk.36 )
+                                                      case c_aenc
+                                                      solve( !KU( h(<~ltk, 
+                                                                     h(<pk(~sk), 
+                                                                        <'S', 'M1', 'R1', 'H', 
+                                                                         'M3', 'D'>, 
+                                                                        ~t.1>), 
+                                                                     'S'>)
+                                                             ) @ #vk.69 )
+                                                        case c_h
+                                                        by solve( !KU( ~ltk ) @ #vk.72 )
+                                                      next
+                                                        case run_H1
+                                                        by solve( !KU( ~sk ) @ #vk.70 )
+                                                      qed
+                                                    qed
+                                                  qed
+                                                qed
+                                              next
+                                                case run_H1_case_1
+                                                solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                       ) @ #vk.31 )
+                                                  case c_sign
+                                                  by solve( !KU( ~ltk ) @ #vk.71 )
+                                                qed
+                                              next
+                                                case run_H1_case_2
+                                                solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                       ) @ #vk.31 )
+                                                  case c_sign
+                                                  by solve( !KU( ~ltk ) @ #vk.72 )
+                                                next
+                                                  case run_H1
+                                                  solve( !KU( aenc(h(<~ltk, 
+                                                                      h(<pk(~sk), 
+                                                                         <'S', 'M1', 'R1', 'H', 
+                                                                          'M3', 'D'>, 
+                                                                         ~t.1>), 
+                                                                      'S'>),
+                                                                   pk(~dtsk))
+                                                         ) @ #vk.33 )
+                                                    case c_aenc
+                                                    solve( !KU( ~t.1 ) @ #vk.65 )
+                                                      case Init_S
+                                                      solve( !KU( h(<~ltk, 
+                                                                     h(<pk(~sk), 
+                                                                        <'S', 'M1', 'R1', 'H', 
+                                                                         'M3', 'D'>, 
+                                                                        ~t>), 
+                                                                     'S'>)
+                                                             ) @ #vk.66 )
+                                                        case c_h
+                                                        by solve( !KU( ~ltk ) @ #vk.69 )
+                                                      next
+                                                        case run_H1
+                                                        by solve( !KU( ~sk ) @ #vk.67 )
+                                                      qed
+                                                    next
+                                                      case fresh
+                                                      solve( !KU( h(<~ltk, 
+                                                                     h(<pk(~sk), 
+                                                                        <'S', 'M1', 'R1', 'H', 
+                                                                         'M3', 'D'>, 
+                                                                        ~t.1>), 
+                                                                     'S'>)
+                                                             ) @ #vk.67 )
+                                                        case c_h
+                                                        by solve( !KU( ~ltk ) @ #vk.70 )
+                                                      next
+                                                        case run_H1
+                                                        by solve( !KU( ~sk ) @ #vk.68 )
+                                                      qed
+                                                    qed
+                                                  qed
+                                                qed
+                                              qed
+                                            next
+                                              case run_H1_case_1
+                                              solve( !KU( ~t.1 ) @ #vk.66 )
+                                                case Init_S
+                                                solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                       ) @ #vk.31 )
+                                                  case c_sign
+                                                  by solve( !KU( ~ltk ) @ #vk.69 )
+                                                qed
+                                              next
+                                                case fresh
+                                                solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                       ) @ #vk.31 )
+                                                  case c_sign
+                                                  by solve( !KU( ~ltk ) @ #vk.70 )
+                                                qed
+                                              qed
+                                            next
+                                              case run_H1_case_2
+                                              solve( !KU( ~t.1 ) @ #vk.67 )
+                                                case Init_S
+                                                solve( !KU( aenc(h(<~ltk, 
+                                                                    h(<stpk, 
+                                                                       <'S', 'M1', 'R1', 'H', 'M3', 
+                                                                        'D'>, 
+                                                                       ~t>), 
+                                                                    'S'>),
+                                                                 pk(~dtsk))
+                                                       ) @ #vk.34 )
+                                                  case c_aenc
+                                                  solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                         ) @ #vk.33 )
+                                                    case c_sign
+                                                    by solve( !KU( ~ltk ) @ #vk.71 )
+                                                  next
+                                                    case run_H1
+                                                    solve( !KU( h(<~ltk, 
+                                                                   h(<pk(~sk), 
+                                                                      <'S', 'M1', 'R1', 'H', 'M3', 
+                                                                       'D'>, 
+                                                                      ~t>), 
+                                                                   'S'>)
+                                                           ) @ #vk.65 )
+                                                      case c_h
+                                                      by solve( !KU( ~ltk ) @ #vk.68 )
+                                                    next
+                                                      case run_H1
+                                                      by solve( !KU( ~sk ) @ #vk.66 )
+                                                    qed
+                                                  qed
+                                                next
+                                                  case run_H1
+                                                  solve( !KU( aenc(h(<~ltk, 
+                                                                      h(<pk(~dtsk), 
+                                                                         <'S', 'M1', 'R1', 'H', 
+                                                                          'M3', 'D'>, 
+                                                                         ~t>), 
+                                                                      'S'>),
+                                                                   pk(~sk))
+                                                         ) @ #vk.31 )
+                                                    case c_aenc
+                                                    solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                           ) @ #vk.34 )
+                                                      case c_sign
+                                                      by solve( !KU( ~ltk ) @ #vk.70 )
+                                                    qed
+                                                  qed
+                                                qed
+                                              next
+                                                case fresh
+                                                solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                       ) @ #vk.31 )
+                                                  case c_sign
+                                                  by solve( !KU( ~ltk ) @ #vk.71 )
+                                                next
+                                                  case run_H1
+                                                  solve( !KU( aenc(h(<~ltk, 
+                                                                      h(<pk(~sk), 
+                                                                         <'S', 'M1', 'R1', 'H', 
+                                                                          'M3', 'D'>, 
+                                                                         ~t.1>), 
+                                                                      'S'>),
+                                                                   pk(~dtsk))
+                                                         ) @ #vk.34 )
+                                                    case c_aenc
+                                                    solve( !KU( h(<~ltk, 
+                                                                   h(<pk(~sk), 
+                                                                      <'S', 'M1', 'R1', 'H', 'M3', 
+                                                                       'D'>, 
+                                                                      ~t.1>), 
+                                                                   'S'>)
+                                                           ) @ #vk.66 )
+                                                      case c_h
+                                                      by solve( !KU( ~ltk ) @ #vk.69 )
+                                                    next
+                                                      case run_H1
+                                                      by solve( !KU( ~sk ) @ #vk.67 )
+                                                    qed
+                                                  qed
+                                                qed
+                                              qed
+                                            qed
+                                          next
+                                            case c_aenc
+                                            solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                   ) @ #vk.28 )
+                                              case c_sign
+                                              by solve( !KU( ~ltk ) @ #vk.74 )
+                                            next
+                                              case run_H1
+                                              solve( !KU( aenc(h(<~ltk, 
+                                                                  h(<pk(~sk), 
+                                                                     <'S', 'M1', 'R1', 'H', 'M3', 
+                                                                      'D'>, 
+                                                                     ~t.1>), 
+                                                                  'S'>),
+                                                               pk(~dtsk))
+                                                     ) @ #vk.34 )
+                                                case c_aenc
+                                                solve( !KU( h(<~ltk, 
+                                                               h(<pk(~sk), 
+                                                                  <'S', 'M1', 'R1', 'H', 'M3', 'D'
+                                                                  >, 
+                                                                  ~t.1>), 
+                                                               'S'>)
+                                                       ) @ #vk.69 )
+                                                  case c_h
+                                                  by solve( !KU( ~ltk ) @ #vk.72 )
+                                                next
+                                                  case run_H1
+                                                  by solve( !KU( ~sk ) @ #vk.70 )
+                                                qed
+                                              qed
+                                            qed
+                                          next
+                                            case run_H1
+                                            solve( !KU( aenc(h(<~ltk, 
+                                                                h(<pk(~sk), 
+                                                                   <'S', 'M1', 'R1', 'H', 'M3', 'D'
+                                                                   >, 
+                                                                   ~t.1>), 
+                                                                'S'>),
+                                                             pk(~dtsk))
+                                                   ) @ #vk.34 )
+                                              case c_aenc
+                                              solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                     ) @ #vk.29 )
+                                                case c_sign
+                                                by solve( !KU( ~ltk ) @ #vk.72 )
+                                              next
+                                                case run_H1
+                                                solve( !KU( h(<~ltk, 
+                                                               h(<pk(~sk), 
+                                                                  <'S', 'M1', 'R1', 'H', 'M3', 'D'
+                                                                  >, 
+                                                                  ~t.1>), 
+                                                               'S'>)
+                                                       ) @ #vk.67 )
+                                                  case c_h
+                                                  by solve( !KU( ~ltk ) @ #vk.70 )
+                                                next
+                                                  case run_H1
+                                                  by solve( !KU( ~sk ) @ #vk.68 )
+                                                qed
+                                              qed
+                                            qed
+                                          qed
+                                        next
+                                          case c_aenc
+                                          solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                 ) @ #vk.27 )
+                                            case c_sign
+                                            by solve( !KU( ~ltk ) @ #vk.75 )
+                                          next
+                                            case run_H1
+                                            solve( !KU( aenc(h(<~ltk, 
+                                                                h(<pk(~sk), 
+                                                                   <'S', 'M1', 'R1', 'H', 'M3', 'D'
+                                                                   >, 
+                                                                   ~t.1>), 
+                                                                'S'>),
+                                                             pk(~dtsk))
+                                                   ) @ #vk.35 )
+                                              case c_aenc
+                                              solve( !KU( h(<~ltk, 
+                                                             h(<pk(~sk), 
+                                                                <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                                ~t.1>), 
+                                                             'S'>)
+                                                     ) @ #vk.70 )
+                                                case c_h
+                                                by solve( !KU( ~ltk ) @ #vk.73 )
+                                              next
+                                                case run_H1
+                                                by solve( !KU( ~sk ) @ #vk.71 )
+                                              qed
+                                            qed
+                                          qed
+                                        next
+                                          case run_H1
+                                          solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk)
+                                                 ) @ #vk.26 )
+                                            case c_sign
+                                            by solve( !KU( ~ltk ) @ #vk.72 )
+                                          next
+                                            case run_H1
+                                            solve( !KU( aenc(h(<~ltk, 
+                                                                h(<pk(~sk), 
+                                                                   <'S', 'M1', 'R1', 'H', 'M3', 'D'
+                                                                   >, 
+                                                                   ~t.1>), 
+                                                                'S'>),
+                                                             pk(~dtsk))
+                                                   ) @ #vk.34 )
+                                              case c_aenc
+                                              solve( !KU( h(<~ltk, 
+                                                             h(<pk(~sk), 
+                                                                <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                                ~t.1>), 
+                                                             'S'>)
+                                                     ) @ #vk.68 )
+                                                case c_h
+                                                by solve( !KU( ~ltk ) @ #vk.71 )
+                                              next
+                                                case run_H1
+                                                by solve( !KU( ~sk ) @ #vk.69 )
+                                              qed
+                                            qed
+                                          qed
+                                        qed
+                                      next
+                                        case c_sign
+                                        by solve( !KU( ~ltk.1 ) @ #vk.75 )
+                                      qed
+                                    next
+                                      case c_sign
+                                      by solve( !KU( ~dltk ) @ #vk.76 )
+                                    qed
+                                  next
+                                    case run_H1_case_2
+                                    solve( !KU( sign(<pk(~sk), dtpk, 'S', 'M1', 'R1', 'M2', 'M3', 
+                                                      'D'>,
+                                                     x.1, ~dltk)
+                                           ) @ #vk.59 )
+                                      case Init_D
+                                      solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk) ) @ #vk.17 )
+                                        case c_sign
+                                        by solve( !KU( ~ltk ) @ #vk.75 )
+                                      next
+                                        case run_H1
+                                        solve( !KU( sign(<pk(~sk), 
+                                                          <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2>,
+                                                         x, ~ltk.1)
+                                               ) @ #vk.67 )
+                                          case Init_S
+                                          solve( !KU( aenc(h(<~ltk, 
+                                                              h(<pk(~sk), 
+                                                                 <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                                 ~t.1>), 
+                                                              'S'>),
+                                                           pk(~dtsk))
+                                                 ) @ #vk.32 )
+                                            case c_aenc
+                                            solve( !KU( h(<~ltk, 
+                                                           h(<pk(~sk), 
+                                                              <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                              ~t.1>), 
+                                                           'S'>)
+                                                   ) @ #vk.69 )
+                                              case c_h
+                                              solve( !KU( h(<pk(~sk), 
+                                                             <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t.1
+                                                            >)
+                                                     ) @ #vk.73 )
+                                                case c_h
+                                                by solve( !KU( ~ltk ) @ #vk.74 )
+                                              qed
+                                            next
+                                              case run_H1
+                                              by solve( !KU( ~sk ) @ #vk.70 )
+                                            qed
+                                          qed
+                                        next
+                                          case c_sign
+                                          by solve( !KU( ~ltk.1 ) @ #vk.73 )
+                                        qed
+                                      qed
+                                    next
+                                      case c_sign
+                                      by solve( !KU( ~dltk ) @ #vk.76 )
+                                    qed
+                                  qed
+                                next
+                                  case c_sign
+                                  by solve( !KU( ~dltk ) @ #vk.76 )
+                                qed
+                              next
+                                case run_H1_case_2
+                                solve( !KU( sign(<pk(~sk), dtpk, 'S', 'M1', 'R1', 'M2', 'M3', 'D'>,
+                                                 x.3, ~dltk)
+                                       ) @ #vk.57 )
+                                  case Init_D
+                                  solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk) ) @ #vk.12 )
+                                    case c_sign
+                                    by solve( !KU( ~ltk ) @ #vk.76 )
+                                  next
+                                    case run_H1_case_1
+                                    solve( !KU( sign(<
+                                                      h(<~dltk, 
+                                                         h(<pk(~sk), 
+                                                            <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2
+                                                           >)
+                                                        >), 
+                                                      pk(~sk), 'S'>,
+                                                     x, ~dltk)
+                                           ) @ #vk.19 )
+                                      case Recv_D
+                                      solve( !KU( sign(<pk(~sk), 
+                                                        <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2>,
+                                                       x.1, ~ltk.1)
+                                             ) @ #vk.67 )
+                                        case Init_S
+                                        solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x, ~ltk)
+                                               ) @ #vk.34 )
+                                          case c_sign
+                                          by solve( !KU( ~ltk ) @ #vk.73 )
+                                        next
+                                          case run_H1
+                                          by sorry /* removed */
+                                        qed
+                                      next
+                                        case c_sign
+                                        by solve( !KU( ~ltk.1 ) @ #vk.74 )
+                                      qed
+                                    next
+                                      case c_sign
+                                      by solve( !KU( ~dltk ) @ #vk.74 )
+                                    qed
+                                  next
+                                    case run_H1_case_2
+                                    solve( !KU( sign(<
+                                                      h(<~dltk, 
+                                                         h(<pk(~sk), 
+                                                            <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2
+                                                           >)
+                                                        >), 
+                                                      pk(~sk), 'S'>,
+                                                     x, ~dltk)
+                                           ) @ #vk.19 )
+                                      case Recv_D
+                                      solve( !KU( sign(<pk(~sk), 
+                                                        <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2>,
+                                                       x.1, ~ltk.1)
+                                             ) @ #vk.67 )
+                                        case Init_S
+                                        solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x, ~ltk)
+                                               ) @ #vk.34 )
+                                          case c_sign
+                                          by solve( !KU( ~ltk ) @ #vk.73 )
+                                        next
+                                          case run_H1
+                                          solve( !KU( aenc(ks1, pk(~sk)) ) @ #vk.16 )
+                                            case Recv_D
+                                            by sorry
+                                          next
+                                            case c_aenc
+                                            solve( !KU( aenc(ks4, pk(~sk)) ) @ #vk.23 )
+                                              case Recv_D
+                                              by sorry
+                                            next
+                                              case c_aenc
+                                              solve( !KU( aenc(kd1, pk(~dtsk)) ) @ #vk.30 )
+                                                case c_aenc
+                                                solve( !KU( aenc(kd4, pk(~dtsk)) ) @ #vk.35 )
+                                                  case c_aenc
+                                                  solve( splitEqs(0) )
+                                                    case split_case_1
+                                                    by sorry
+                                                  next
+                                                    case split_case_2
+                                                    by sorry
+                                                  next
+                                                    case split_case_3
+                                                    by sorry
+                                                  next
+                                                    case split_case_4
+                                                    by sorry
+                                                  next
+                                                    case split_case_5
+                                                    by sorry
+                                                  next
+                                                    case split_case_6
+                                                    by sorry
+                                                  next
+                                                    case split_case_7
+                                                    by sorry
+                                                  next
+                                                    case split_case_8
+                                                    solve( splitEqs(1) )
+                                                      case split_case_1
+                                                      by sorry
+                                                    next
+                                                      case split_case_2
+                                                      by sorry
+                                                    next
+                                                      case split_case_3
+                                                      solve( !KU( sign(z, x, z.1) ) @ #vk.31 )
+                                                        case Init_D
+                                                        by sorry
+                                                      next
+                                                        case Init_S
+                                                        by sorry
+                                                      next
+                                                        case Recv_D
+                                                        by sorry
+                                                      next
+                                                        case c_sign
+                                                        solve( !KU( sign(z.2, x.1, z.3) ) @ #vk.33 )
+                                                          case Init_D
+                                                          by sorry
+                                                        next
+                                                          case Init_S
+                                                          by sorry
+                                                        next
+                                                          case Recv_D
+                                                          by sorry
+                                                        next
+                                                          case c_sign
+                                                          solve( !KU( sign(z.4, x.2, z.5)
+                                                                 ) @ #vk.39 )
+                                                            case Init_D
+                                                            by sorry
+                                                          next
+                                                            case Init_S
+                                                            by sorry
+                                                          next
+                                                            case Recv_D
+                                                            by contradiction /* cyclic */
+                                                          next
+                                                            case c_sign
+                                                            solve( !KU( aenc(h(<~ltk, 
+                                                                                h(<pk(~sk), 
+                                                                                   <'S', 'M1', 
+                                                                                    'R1', 'H', 
+                                                                                    'M3', 'D'>, 
+                                                                                   ~t.1>), 
+                                                                                'S'>),
+                                                                             pk(~sk))
+                                                                   ) @ #vk.33 )
+                                                              case c_aenc
+                                                              solve( !KU( h(<~ltk, 
+                                                                             h(<pk(~sk), 
+                                                                                <'S', 'M1', 'R1', 
+                                                                                 'H', 'M3', 'D'>, 
+                                                                                ~t.1>), 
+                                                                             'S'>)
+                                                                     ) @ #vk.81 )
+                                                                case c_h
+                                                                by solve( !KU( ~ltk ) @ #vk.84 )
+                                                              next
+                                                                case run_H1
+                                                                by solve( !KU( ~sk ) @ #vk.82 )
+                                                              qed
+                                                            next
+                                                              case run_H1
+                                                              solve( !KU( aenc(h(<~dltk, 
+                                                                                  h(<pk(~sk), 
+                                                                                     <'S', 'M1', 
+                                                                                      'R1', 'M2', 
+                                                                                      'M3', 'D'>, 
+                                                                                     ~t>)
+                                                                                 >),
+                                                                               pk(~sk))
+                                                                     ) @ #vk.36 )
+                                                                case Recv_D
+                                                                solve( !KU( ~t.1 ) @ #vk.67 )
+                                                                  case Init_S
+                                                                  solve( !KU( aenc(h(<~ltk, 
+                                                                                      h(<pk(~dtsk), 
+                                                                                         <'S', 
+                                                                                          'M1', 
+                                                                                          'R1', 
+                                                                                          'H', 
+                                                                                          'M3', 'D'
+                                                                                         >, 
+                                                                                         ~t>), 
+                                                                                      'D'>),
+                                                                                   pk(~dtsk))
+                                                                         ) @ #vk.38 )
+                                                                    case run_H1
+                                                                    solve( !KU( pk(~sk) ) @ #vk.65 )
+                                                                      case Init_S
+                                                                      solve( !KU( pk(~dtsk)
+                                                                             ) @ #vk.44 )
+                                                                        case Init_D
+                                                                        SOLVED // trace found
+                                                                      qed
+                                                                    qed
+                                                                  qed
+                                                                qed
+                                                              next
+                                                                case c_aenc
+                                                                solve( !KU( h(<~dltk, 
+                                                                               h(<pk(~sk), 
+                                                                                  <'S', 'M1', 'R1', 
+                                                                                   'M2', 'M3', 'D'
+                                                                                  >, 
+                                                                                  ~t>)
+                                                                              >)
+                                                                       ) @ #vk.81 )
+                                                                  case Recv_D
+                                                                  by solve( !KU( ~sk ) @ #vk.82 )
+                                                                next
+                                                                  case c_h
+                                                                  by solve( !KU( ~dltk ) @ #vk.83 )
+                                                                qed
+                                                              qed
+                                                            qed
+                                                          next
+                                                            case run_H1_case_1
+                                                            by sorry
+                                                          next
+                                                            case run_H1_case_2
+                                                            by sorry
+                                                          qed
+                                                        next
+                                                          case run_H1_case_1
+                                                          by sorry
+                                                        next
+                                                          case run_H1_case_2
+                                                          by sorry
+                                                        qed
+                                                      next
+                                                        case run_H1_case_1
+                                                        by sorry
+                                                      next
+                                                        case run_H1_case_2
+                                                        by sorry
+                                                      qed
+                                                    next
+                                                      case split_case_4
+                                                      by sorry
+                                                    next
+                                                      case split_case_5
+                                                      by sorry
+                                                    next
+                                                      case split_case_6
+                                                      by sorry
+                                                    next
+                                                      case split_case_7
+                                                      by sorry
+                                                    next
+                                                      case split_case_8
+                                                      by sorry
+                                                    qed
+                                                  qed
+                                                next
+                                                  case run_H1
+                                                  by sorry
+                                                qed
+                                              next
+                                                case run_H1
+                                                by sorry
+                                              qed
+                                            next
+                                              case run_H1
+                                              by sorry
+                                            qed
+                                          next
+                                            case run_H1
+                                            by sorry
+                                          qed
+                                        qed
+                                      next
+                                        case c_sign
+                                        by solve( !KU( ~ltk.1 ) @ #vk.74 )
+                                      qed
+                                    next
+                                      case c_sign
+                                      by solve( !KU( ~dltk ) @ #vk.74 )
+                                    qed
+                                  qed
+                                next
+                                  case c_sign
+                                  by solve( !KU( ~dltk ) @ #vk.76 )
+                                qed
+                              qed
+                            qed
+                          qed
+                        next
+                          case run_H1_case_2
+                          solve( !Role( 'R1', ~ltk ) ▶₀ #k1 )
+                            case keySetup
+                            solve( R1_H1_In( ~t.1,
+                                             <m1, stpk.1, dtpk.1, 'S', 'M1', 'R1', 'H', 'M3', 'D'>
+                                   ) ▶₁ #k1 )
+                              case Run_R1_TO_H
+                              solve( HKey( kd3 ) @ #k2 )
+                                case run_H1_case_1
+                                solve( !KU( sign(<pk(~sk), dtpk, 'S', 'M1', 'R1', 'M2', 'M3', 'D'>,
+                                                 x.3, ~dltk)
+                                       ) @ #vk.57 )
+                                  case Init_D
+                                  solve( !KU( sign(<
+                                                    h(<~dltk, 
+                                                       h(<pk(~sk), 
+                                                          <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2>)
+                                                      >), 
+                                                    pk(~sk), 'S'>,
+                                                   x.1, ~dltk)
+                                         ) @ #vk.19 )
+                                    case Recv_D
+                                    solve( !KU( sign(<pk(~sk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, 
+                                                      ~t.2>,
+                                                     x.2, ~ltk.1)
+                                           ) @ #vk.68 )
+                                      case Init_S
+                                      solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk) ) @ #vk.18 )
+                                        case c_sign
+                                        by solve( !KU( ~ltk ) @ #vk.75 )
+                                      next
+                                        case run_H1_case_1
+                                        solve( !KU( aenc(h(<~ltk, 
+                                                            h(<dtpk, 
+                                                               <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                               ~t.1>), 
+                                                            'D'>),
+                                                         pk(~sk))
+                                               ) @ #vk.17 )
+                                          case c_aenc
+                                          solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x, ~ltk)
+                                                 ) @ #vk.38 )
+                                            case c_sign
+                                            by solve( !KU( ~ltk ) @ #vk.75 )
+                                          next
+                                            case run_H1
+                                            solve( !KU( aenc(h(<~ltk, 
+                                                                h(<pk(~sk), 
+                                                                   <'S', 'M1', 'R1', 'H', 'M3', 'D'
+                                                                   >, 
+                                                                   ~t.1>), 
+                                                                'S'>),
+                                                             pk(~dtsk))
+                                                   ) @ #vk.33 )
+                                              case c_aenc
+                                              solve( !KU( h(<~ltk, 
+                                                             h(<pk(~dtsk), 
+                                                                <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                                ~t.1>), 
+                                                             'D'>)
+                                                     ) @ #vk.70 )
+                                                case c_h
+                                                by solve( !KU( ~ltk ) @ #vk.74 )
+                                              next
+                                                case run_H1
+                                                by solve( !KU( ~dtsk ) @ #vk.72 )
+                                              qed
+                                            qed
+                                          qed
+                                        next
+                                          case run_H1
+                                          solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x, ~ltk)
+                                                 ) @ #vk.38 )
+                                            case c_sign
+                                            by solve( !KU( ~ltk ) @ #vk.73 )
+                                          qed
+                                        qed
+                                      next
+                                        case run_H1_case_2
+                                        solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x, ~ltk)
+                                               ) @ #vk.38 )
+                                          case c_sign
+                                          by solve( !KU( ~ltk ) @ #vk.74 )
+                                        next
+                                          case run_H1
+                                          solve( !KU( aenc(h(<~ltk, 
+                                                              h(<pk(~dtsk), 
+                                                                 <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                                 ~t.1>), 
+                                                              'D'>),
+                                                           pk(~sk))
+                                                 ) @ #vk.20 )
+                                            case c_aenc
+                                            solve( !KU( h(<~ltk, 
+                                                           h(<pk(~dtsk), 
+                                                              <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                              ~t.1>), 
+                                                           'D'>)
+                                                   ) @ #vk.70 )
+                                              case c_h
+                                              by solve( !KU( ~ltk ) @ #vk.73 )
+                                            next
+                                              case run_H1
+                                              by solve( !KU( ~dtsk ) @ #vk.71 )
+                                            qed
+                                          qed
+                                        qed
+                                      qed
+                                    next
+                                      case c_sign
+                                      by solve( !KU( ~ltk.1 ) @ #vk.76 )
+                                    qed
+                                  next
+                                    case c_sign
+                                    by solve( !KU( ~dltk ) @ #vk.76 )
+                                  qed
+                                next
+                                  case c_sign
+                                  by solve( !KU( ~dltk ) @ #vk.76 )
+                                qed
+                              next
+                                case run_H1_case_2
+                                solve( !KU( sign(<pk(~sk), dtpk, 'S', 'M1', 'R1', 'M2', 'M3', 'D'>,
+                                                 x.3, ~dltk)
+                                       ) @ #vk.57 )
+                                  case Init_D
+                                  solve( !KU( sign(<
+                                                    h(<~dltk, 
+                                                       h(<pk(~sk), 
+                                                          <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, ~t.2>)
+                                                      >), 
+                                                    pk(~sk), 'S'>,
+                                                   x.1, ~dltk)
+                                         ) @ #vk.19 )
+                                    case Recv_D
+                                    solve( !KU( sign(<pk(~sk), <'S', 'M1', 'R1', 'M2', 'M3', 'D'>, 
+                                                      ~t.2>,
+                                                     x.2, ~ltk.1)
+                                           ) @ #vk.68 )
+                                      case Init_S
+                                      solve( !KU( sign(<ks2, pk(~sk), 'S'>, x, ~ltk) ) @ #vk.18 )
+                                        case c_sign
+                                        by solve( !KU( ~ltk ) @ #vk.75 )
+                                      next
+                                        case run_H1_case_1
+                                        solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x, ~ltk)
+                                               ) @ #vk.38 )
+                                          case c_sign
+                                          by solve( !KU( ~ltk ) @ #vk.74 )
+                                        next
+                                          case run_H1
+                                          solve( !KU( aenc(h(<~ltk, 
+                                                              h(<pk(~dtsk), 
+                                                                 <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                                 ~t.1>), 
+                                                              'D'>),
+                                                           pk(~sk))
+                                                 ) @ #vk.20 )
+                                            case c_aenc
+                                            solve( !KU( h(<~ltk, 
+                                                           h(<pk(~dtsk), 
+                                                              <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                              ~t.1>), 
+                                                           'D'>)
+                                                   ) @ #vk.69 )
+                                              case c_h
+                                              by solve( !KU( ~ltk ) @ #vk.72 )
+                                            next
+                                              case run_H1
+                                              by solve( !KU( ~dtsk ) @ #vk.70 )
+                                            qed
+                                          qed
+                                        qed
+                                      next
+                                        case run_H1_case_2
+                                        solve( !KU( aenc(h(<~ltk, 
+                                                            h(<dtpk, 
+                                                               <'S', 'M1', 'R1', 'H', 'M3', 'D'>, 
+                                                               ~t.1>), 
+                                                            'D'>),
+                                                         pk(~sk))
+                                               ) @ #vk.17 )
+                                          case c_aenc
+                                          solve( !KU( h(<~ltk, 
+                                                         h(<dtpk, 
+                                                            <'S', 'M1', 'R1', 'H', 'M3', 'D'>, ~t.1
+                                                           >), 
+                                                         'D'>)
+                                                 ) @ #vk.71 )
+                                            case c_h
+                                            by solve( !KU( ~ltk ) @ #vk.74 )
+                                          next
+                                            case run_H1
+                                            solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x.1, ~ltk)
+                                                   ) @ #vk.39 )
+                                              case c_sign
+                                              by solve( !KU( ~ltk ) @ #vk.76 )
+                                            next
+                                              case run_H1
+                                              by solve( !KU( ~dtsk ) @ #vk.70 )
+                                            qed
+                                          qed
+                                        next
+                                          case run_H1
+                                          solve( !KU( sign(<kd2, pk(~dtsk), 'D'>, x, ~ltk)
+                                                 ) @ #vk.38 )
+                                            case c_sign
+                                            by solve( !KU( ~ltk ) @ #vk.73 )
+                                          qed
+                                        qed
+                                      qed
+                                    next
+                                      case c_sign
+                                      by solve( !KU( ~ltk.1 ) @ #vk.76 )
+                                    qed
+                                  next
+                                    case c_sign
+                                    by solve( !KU( ~dltk ) @ #vk.76 )
+                                  qed
+                                next
+                                  case c_sign
+                                  by solve( !KU( ~dltk ) @ #vk.76 )
+                                qed
+                              qed
+                            qed
+                          qed
+                        qed
+                      qed
+                    qed
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma functional:
+  exists-trace
+  "∃ t path stpk dtpk kds #i #j.
+    (Finished_D( t, path, stpk, dtpk, kds ) @ #i) ∧
+    (Finished_S( t, path, stpk, dtpk, kds ) @ #j)"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ t path stpk dtpk kds #i #j.
+  (Finished_D( t, path, stpk, dtpk, kds ) @ #i) ∧
+  (Finished_S( t, path, stpk, dtpk, kds ) @ #j)"
+*/
+by sorry
+
+restriction OnlyOnce:
+  "∀ x #i #j.
+    ((OnlyOnce( x ) @ #i) ∧ (OnlyOnce( x ) @ #j)) ⇒ (#i = #j)"
+  // safety formula
+
+/* All well-formedness checks were successful. */
+
+end

@@ -1,0 +1,139 @@
+/*
+ * Running Time: 5 seconds
+ * Special Arguments or Flags: None
+ * Symbolic Model: Equational
+ */
+
+theory WS_SECURITY_X509MA_EQN
+begin
+
+builtins: asymmetric-encryption, signing, symmetric-encryption
+
+functions: CEOgen/1
+equations: verify(sign(m, sk), m, pk(CEOgen(sign(m, sk)))) = true
+
+//These rules allow for the registration of an honest party
+rule Register_pk_Server__normal:
+  [ Fr(~ltk) ]
+  --[Honest($A), Register($A,pk(~ltk)) ]->
+  [ !LtkS($A, ~ltk), !PkS($A,  pk(~ltk)), Out(pk(~ltk)) ]
+
+rule Register_pk_Client_normal:
+  [ Fr(~ltk) ]
+  --[Honest($A), Register($A,pk(~ltk)) ]->
+  [ !LtkC($A, ~ltk), !PkC($A, pk(~ltk)), Out(pk(~ltk)) ]
+
+// These rules allow for an adversary to register their keys, but requires them to prove
+// knowledge of the private key.
+rule Register_pk_evilclient_validated:
+  [ In(k) ]
+  --[ Corrupt($E), Register($E,pk(k)) ]->
+  [ !PkC($E, pk(k)) ]
+
+rule Register_pk_evilserver_validated:
+  [ In(k) ]
+  --[ Corrupt($E), Register($E,pk(k)) ]->
+  [ !PkS($E, pk(k)) ]
+
+rule Initatior_1:
+	let
+		pl1 = <~req,~ts>
+		sig = sign(pl1,~skI)
+	in
+	[ Fr(~kIR),Fr(~ts), Fr(~req), !LtkC($I,~skI), !PkS($R,pkR)]
+	--[Request($I,$R,~req,~ts)]->
+	[ Out(<~ts,sig,senc(~req,~kIR),aenc(~kIR,pkR)>)
+	, State_I(~req,$I,$R,sig)
+	]
+
+rule Responder:
+	let
+		kIR = adec(kemK,~skR)
+		req = sdec(ct,kIR) //Req
+		pl1 = <req,ts>
+		pl2 = <~resp,sig>
+		newSig = sign(pl2,~skR)
+	in
+	[ !LtkS($R,~skR), !PkC($I,pkI)
+	, In(<ts,sig,kemK,ct>)
+	, Fr(~resp), Fr(~kRI)
+	]
+	--[Eq(verify(sig,pl1,pkI),true)
+	,  Response($I,$R,req,~resp,ts)]->
+	[ Out(<newSig,aenc(~kRI,pkI),senc(~resp,~kRI)>) ]
+
+rule Initatior_2:
+	let
+		kRI = adec(kemK,~skI)
+		resp = sdec(ct,kRI) //Also response
+		pl2 = <resp,sig>
+	in
+	[ In(<newSig,kemK,ct>)
+	, State_I(~req,$I,$R,sig)
+	, !LtkC($I,~skI), !PkS($R,pkR)
+	]
+	--[Eq(verify(newSig,pl2,pkR),true)
+	,  Finished($I,$R,~req,resp)]->
+	[]
+
+lemma functional:
+	exists-trace
+		"
+		Ex I R req resp ts #i #j #k #m #n .
+		Honest(I) @ m &
+		Honest(R) @ n &
+		Request(I,R,req, ts) @ i &
+		Response(I,R,req,resp, ts) @ j &
+		Finished(I,R,req,resp) @ k
+		"
+
+axiom Equality:
+	"
+	All x y #i . Eq(x,y) @ i ==> x = y
+	"
+
+axiom uniqueIds:
+	"All id pk1 pk2 #i #j . Register(id, pk1) @ i & Register(id, pk2) @ j ==> #i = #j"
+
+	lemma Requests_Are_Authorised:
+	// Quote:
+	// B accepts a request from A with timestamp TS only if A sent such a request with timestamp TS
+	// ServerRecv(u,s,x) => ClientSend(u,_,x)
+	// Strange that they don't bind the server, but we follow the earlier paper
+	"
+	All I R req resp ts #i #k . Response(I, R, req, resp,ts) @ i & Honest(I) @ k
+							==> Ex R2 #j . Request(I, R2, req, ts) @ j
+	"
+
+	lemma Request_Response_Correlation:
+	// Quote:
+	// A accepts a response to its request only if B sent the response on receiving A's request
+	// ClientCorr(u,s,x,y) => ServerCorr(u,s,x,y)
+	"
+	All I R req resp #i #k . Finished(I,R,req,resp) @ i & Honest(R) @ k
+								==> Ex ts #j . Response(I,R,req,resp,ts) @ j
+	"
+
+	lemma Sent_Request_Is_Secret:
+	// Quote:
+	// Req and Resp are kept secret from all principles other than A and B
+	// Copies the secrecy requirement, Client sends Request to Honest Server then Secret
+	"
+		All I R req ts #i #k . Request(I,R,req,ts) @ i & Honest(R) @ k ==> not Ex #j . K(req) @ j
+	"
+
+	lemma Sent_Response_Is_Secret:
+	// Quote:
+	// Req and Resp are kept secret from all principles other than A and B
+	// Copies the secrecy requirement, Server Sends Response to Honest Client then secret
+	"
+		All I R req resp ts #i #k . Response(I,R,req,resp,ts) @ i & Honest(I) @ k ==> not Ex #j . K(resp) @ j
+	"
+	lemma Received_Response_Is_Secret:
+	// Honest Client Recvs Response from Honest Server then secret
+	// Not in original paper but expected!
+	"
+	All I R req resp #i #k1 #k2 . Finished(I,R,req,resp) @ i & Honest(R) @ k1 & Honest(I) @ k2 ==> not Ex #j . K(resp) @ j
+	"
+
+end

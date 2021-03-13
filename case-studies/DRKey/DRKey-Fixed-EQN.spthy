@@ -1,0 +1,275 @@
+/*
+ * Running Time: Does not terminate after 2 hours
+ * Special Arguments or Flags:
+ * Symbolic Model: SVS, Model for Verification
+ *
+ * NOTE: Please see the associated file "...-Complete-Attack"
+ * for a manually found attack trace.
+ */
+
+theory DRKEY_SVS
+begin
+
+builtins: asymmetric-encryption,hashing
+
+functions: mangle/2, CEOgen/1, weak/1,
+		   verify/3, sign/3, pk/1, true/0
+
+functions: DEOgen/2 [private]
+
+equations: verify(sign(m,r, sk), m, pk(sk)) = true
+equations:	verify(sign(m1,r, sk), m2, pk(DEOgen(m2,sign(m1,r, sk)))) = true
+equations:	verify(sign(m1,r,weak(x)),m2,pk(weak(x))) = true
+equations:  verify(sign(m,r, sk), m, pk(CEOgen(sign(m,r, sk)))) = true
+equations:	mangle(sign(m,r,sk),repnew)= sign(m,repnew,sk)
+
+ rule make_DEO_sk:
+ 	[In(<m2,sign(m1,r,sk)>)]
+ 	--[Neq(m1,m2)]->
+ 	[Out(DEOgen(m2,sign(m1,r,sk)))]
+
+ rule ReSign:
+ 	[ In(<sign(m,r,sk1), sk2 >) ]
+ 	-->
+ 	[ Out( sign(m,r,sk2 )) ]
+
+ restriction Neq:
+ 	"
+ 	All x #i . Neq(x,x) @ i ==> F
+ 	"
+
+rule keySetup:
+	[ Fr(~sltk), Fr(~dltk), Fr(~r2ltk), Fr(~hltk),
+	 In(<m1ltk,m2ltk,m3ltk>)
+	]
+	--[
+	    Honest('D',  pk(~dltk )), Honest('S',pk(~sltk)),
+	    Honest('R1', pk(~r2ltk)), Honest('H',pk(~hltk)),
+	    GoodKey(pk(~dltk)),GoodKey(pk(~sltk)) ,GoodKey(pk(~r2ltk)) ,GoodKey(pk(~hltk)),
+	    Evil('M1'), Evil('M2'), Evil('M3'),
+	    OnlyOnce('SETUP')
+	]->
+	[!Role('D',~dltk),!Role('S',~sltk),!Role('R1',~r2ltk),!Role('H',~hltk)
+	, !F_Cert_D(pk(~dltk)),!F_Cert_S(pk(~sltk)),!F_Cert_R1(pk(~r2ltk)),!F_Cert_H(pk(~hltk))
+	, !F_Cert('M1',pk(m1ltk)), !F_Cert('M2',pk(m2ltk)), !F_Cert('M3',pk(m3ltk))]
+
+rule Init_S:
+	//The source intiaties the key exchange through a message sent to the destination
+	let
+		path = <'S','M1','R1', 'M2','M3', 'D'>
+		tpk = pk(~sk)
+		sid = h(<tpk,path,~t>)
+	in
+	[ !Role('S',~ltk)
+	, Fr(~t), Fr(~sk)]
+	--[OnlyOnce('INIT_S')]->
+	[ Out(<tpk,path,~t,sign(<tpk,path,~t>,'0',~ltk)>)
+	, Init_Sess_S(~sk,~t,path,sid,'S')
+	]
+
+rule Init_D:
+	// Destination checks the signature and responds with initiation message
+	let
+		path = <'S','M1','R1', 'M2','M3', 'D'>
+		tpk = pk(~dtsk)
+		sid = h(<tpk,path,~t>)
+		spk  = pk(~z2)	// since S's key is honestly generated
+	in
+	[ !Role('D',~ltk)
+	, !F_Cert_S( spk)
+	, In(<stpk,path,~t,sig>)
+	, Fr(~dtsk)
+	]
+	--[ Eq(verify(sig,<stpk,path,~t>,spk),true),OnlyOnce('INIT_D')]->
+	[ Out(<tpk,path,~t,sign(<stpk,tpk,path>,'0',~ltk)>)
+	,Init_Sess_D(~dtsk,~t,path,sid,stpk,'D')
+	]
+
+rule Recv_S_1:
+	// Source  verifies the destinations temporary encryption key
+	let
+		path = <'S','M1','R1', 'M2','M3', 'D'>
+		dpk  = pk(~z1)	// since D's key is honestly generated
+	in
+	[ Init_Sess_S(~sk,~t,path,sid,'S')
+	, !Role('S', ~ltk)
+	, !F_Cert_D( dpk)
+	, In(<dtpk,path,~t,sigD>)
+	]
+	--[	Eq(verify(sigD,<pk(~sk),dtpk,path>,dpk),true),
+	OnlyOnce('Recv_S_1')]->
+	[Init_Sess_Inter(~sk,~t,path,sid,dtpk,'S')]
+
+rule Run_R1_TO_H:
+	//This rule allows R1 to talk to H over a secure channel.
+	//Messages arrive to R1 from the adversary and R1 expects one of two paths.
+	let
+		path = <'S','M1','R1', 'H','M3', 'D'>
+		sidS = h(<stpk,path,~t>)
+		sidD = h(<dtpk,path,~t>)
+		ks = h(<~ltk,sidS,'S'>)
+		kd = h(<~ltk,sidD,'D'>)
+		en_ks = aenc(ks,stpk)
+		en_kd = aenc(kd,dtpk)
+		sigS = sign(<ks,stpk,'S'>,'0',~ltk)
+		sigD = sign(<kd,dtpk,'D'>,'0',~ltk)
+		m1 = <en_ks,en_kd,sigS,sigD>
+	in
+	[ !Role('R1', ~ltk)
+	, In(<stpk,dtpk,path,~t>)
+	]
+	--[OnlyOnce('R1')]->
+	[R1_H1_In(~t,<m1,stpk,dtpk,path>) //H and R1 share a secure channel so will see the same pk info!
+	]
+
+rule Run_R1_TO_M:
+	// This rule allows R1 to talk to M
+	// The adversary doesn't actually need this rule.
+	let
+		path = <'S','M1','R1', 'M2','M3', 'D'>
+		sidS = h(<stpk,path,~t>)
+		sidD = h(<dtpk,path,~t>)
+		ks = h(<~ltk,sidS,'S'>)
+		kd = h(<~ltk,sidD,'D'>)
+		en_ks = aenc(ks,stpk)
+		en_kd = aenc(kd,dtpk)
+		sigS = sign(<ks,stpk,'S'>,'0',~ltk)
+		sigD = sign(<kd,dtpk,'D'>,'0',~ltk)
+		m1 = <en_ks,en_kd,sigS,sigD>
+	in
+	[ !Role('R1',~ltk)
+	, In(<stpk,dtpk,path,~t>)
+	]
+	--[OnlyOnce('R1')]->
+	[Out(m1)]
+
+rule run_H1:
+	//An honest party who isn't on the intended path.
+	//These messages aren't authenticated so can be convinced to issue keys.
+	//The ordinarily no honest S or D would accept the signature!
+	let
+		path = <'S','M1','R1', 'H','M3', 'D'>
+		sidS = h(<stpk,path,~t>)
+		sidD = h(<dtpk,path,~t>)
+		ks = h(<~ltk,sidS,'S'>)
+		kd = h(<~ltk,sidD,'D'>)
+		en_ks = aenc(ks,stpk)
+		en_kd = aenc(kd,dtpk)
+		sigS = sign(<ks,stpk,'S'>,'0',~ltk)
+		sigD = sign(<kd,dtpk,'D'>,'0',~ltk)
+	in
+	[ !Role('R1',~ltk)
+	, R1_H1_In(~t,<m1,stpk,dtpk,path>)
+	]
+	--[OnlyOnce('H'),HKey(h(<ks,'H','S'>)),HKey(h(<kd,'H','S'>))]->
+	[Out(<m1,en_ks,en_kd,sigS,sigD>)]
+
+rule Recv_D:
+	//D acquires all the keys and forwards a key onto S
+	let
+		path = <'S','M1','R1', 'M2','M3', 'D'>
+		en_kd1 = aenc(Rkd1,pk(~dtsk)) //kd1 = adec(en_kd1,~dtsk)
+		en_kd2 = aenc(Rkd2,pk(~dtsk)) //kd2 = adec(en_kd2,~dtsk)
+		en_kd3 = aenc(Rkd3,pk(~dtsk)) //kd3 = adec(en_kd3,~dtsk)
+		en_kd4 = aenc(Rkd4,pk(~dtsk)) //kd4 = adec(en_kd4,~dtsk)
+		sidS = h(<stpk,path,~t>)
+		Rkds = h(<~ltk,sidS>)
+		kd1 = h(<Rkd1,'M1','S'>)
+		kd2 = h(<Rkd2,'R1','S'>)
+		kd3 = h(<Rkd3,'M2','S'>)
+		kd4 = h(<Rkd4,'M3','S'>)
+		kds = h(<Rkds,'D','S'>)
+		r2pk = pk(~z1)	// since R1's key is honestly generated
+	in
+	[ Init_Sess_D(~dtsk,~t,path,sid,stpk,'D')
+	, !Role('D',~ltk)
+	, In(<en_kd1,en_kd2,en_kd3,en_kd4,sigd1,sigd2,sigd3,sigd4>)
+	, !F_Cert('M1', r1pk)
+	, !F_Cert_R1( r2pk)
+	, !F_Cert('M2', r3pk)
+	, !F_Cert('M3', r4pk)
+	]
+	--[
+	  OnlyOnce('FINISH_D')
+	, Eq(verify(sigd1,<kd1,pk(~dtsk),'D'>,r1pk),true)
+	, Eq(verify(sigd2,<kd2,pk(~dtsk),'D'>,r2pk),true)
+	, Eq(verify(sigd3,<kd3,pk(~dtsk),'D'>,r3pk),true)
+	, Eq(verify(sigd4,<kd4,pk(~dtsk),'D'>,r4pk),true)
+	, Finished_D(~t,path,stpk,pk(~dtsk),kds)
+	, SecretKey(kd2)
+	, SecretKey(kds)
+	, D_Believes(kd1,kd2,kd3,kd4,kds)
+	]->
+	[ Out(<aenc(Rkds,stpk),sign(<Rkds,stpk,'S'>,'0',~ltk)>) ]
+
+rule Recv_S:
+	//S agrees all the keys
+	let
+		path = <'S','M1','R1', 'M2','M3', 'D'>
+		en_ks1 = aenc(Rks1,pk(~sk)) //ks1 = adec(en_ks1,~sk)
+		en_ks2 = aenc(Rks2,pk(~sk)) //ks2 = adec(en_ks2,~sk)
+		en_ks3 = aenc(Rks3,pk(~sk)) //ks3 = adec(en_ks3,~sk)
+		en_ks4 = aenc(Rks4,pk(~sk)) //ks4 = adec(en_ks4,~sk)
+		en_kds = aenc(Rkds,pk(~sk)) //kds = adec(en_kds,~sk)
+		ks1 = h(<Rks1,'M1','S'>)
+		ks2 = h(<Rks2,'R1','S'>)
+		ks3 = h(<Rks3,'M2','S'>)
+		ks4 = h(<Rks4,'M3','S'>)
+		kds = h(<Rkds,'D','S'>)r2pk = pk(~z1)	// since R1's key is honestly generated
+		dpk  = pk(~z2)	// since D's key is honestly generated
+	in
+	[ Init_Sess_Inter(~sk,~t,path,sid,dtpk,'S')
+	, In(<en_ks1,en_ks2,en_ks3,en_ks4,sigs1,sigs2,sigs3,sigs4,en_kds,sigsd>)
+	, !F_Cert('M1', r1pk)
+	, !F_Cert_R1( r2pk)
+	, !F_Cert('M2', r3pk)
+	, !F_Cert('M3', r4pk)
+	, !F_Cert_D( dpk)
+	]
+	--[
+	  OnlyOnce('FINISH_S')
+	, Eq(verify(sigs1,<ks1,pk(~sk),'S'>,r1pk),true)
+	, Eq(verify(sigs2,<ks2,pk(~sk),'S'>,r2pk),true)
+	, Eq(verify(sigs3,<ks3,pk(~sk),'S'>,r3pk),true)
+	, Eq(verify(sigs4,<ks4,pk(~sk),'S'>,r4pk),true)
+	, Eq(verify(sigsd,<kds,pk(~sk),'S'>,dpk),true)
+	, Finished_S(~t,path,pk(~sk),dtpk,kds)
+	, SecretKey(ks2)
+	, SecretKey(kds)
+	, S_Believes(ks1,ks2,ks3,ks4,kds)
+	]->
+	[]
+
+lemma no_confusion:
+	//S and D will not install keys, believed to be with M2, but actually with H
+	"
+	All ks1 ks2 ks3 ks4 kd1 kd2 kd3 kd4 kds #i #j .
+	 S_Believes(ks1,ks2,ks3,ks4,kds) @ i & D_Believes(kd1,kd2,kd3,kd4,kds) @ j ==>
+	(not Ex #k1 . HKey(ks3) @ k1) | (not Ex #k2 . HKey(kd3) @ k2)
+	"
+
+/* Spare Lemmas
+
+lemma secretKey:
+	"
+	All k #i . SecretKey(k) @ i ==> not Ex #j . K(k) @ j
+	"
+
+lemma functional:
+	exists-trace
+	"
+	Ex t path stpk dtpk kds #i #j . Finished_D(t,path,stpk,dtpk,kds) @ i &
+									Finished_S(t,path,stpk,dtpk,kds) @ j
+	"
+*/
+restriction OnlyOnce:
+	"
+	All x #i #j . OnlyOnce(x) @ i & OnlyOnce(x) @ j ==> #i = #j
+	"
+
+restriction equality:
+	"
+	All x y #i . Eq(x,y) @ i ==> x = y
+	"
+
+end

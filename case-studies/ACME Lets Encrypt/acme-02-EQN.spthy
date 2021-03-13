@@ -1,0 +1,142 @@
+/*
+ * Running Time: <1 seconds
+ * Special Arguments or Flags: None
+ * Symbolic Model: Equational, access to DEO Eqn granted.
+ */
+
+theory ACME_02_EQN
+begin
+
+builtins: hashing
+functions: mangle/2, CEOgen/1, weak/1,
+		   verify/3, sign/3, pk/1, true/0
+
+functions: DEOgen/2 [private]
+
+equations: verify(sign(m,r, sk), m, pk(sk)) = true
+equations:	verify(sign(m1,r, sk), m2, pk(DEOgen(m2,sign(m1,r, sk)))) = true
+equations:	verify(sign(m1,r,weak(x)),m2,pk(weak(x))) = true
+equations:  verify(sign(m,r, sk), m, pk(CEOgen(sign(m,r, sk)))) = true
+equations:	mangle(sign(m,r,sk),repnew)= sign(m,repnew,sk)
+
+ rule make_DEO_sk:
+ 	[In(<m2,sign(m1,r,sk)>)]
+ 	--[Neq(m1,m2)]->
+ 	[Out(DEOgen(m2,sign(m1,r,sk)))]
+
+ rule ReSign:
+ 	[ In(<sign(m,r,sk1), sk2 >) ]
+ 	-->
+ 	[ Out( sign(m,r,sk2 )) ]
+
+ restriction Neq:
+ 	"
+ 	All x #i . Neq(x,x) @ i ==> F
+ 	"
+
+
+rule setupLE:
+	[Fr(~ltk)]
+	--[OnceOnly('SetupLE')]->
+	[Out(pk(~ltk)),!LE_Pub(pk(~ltk)),!LE_Pri(~ltk)]
+
+rule USR_Reg:
+	[Fr(~usersk),Fr(~website)]
+	--[OnceOnly('USR_Reg')]->
+	[!Usr(~usersk,~website),Out(<pk(~usersk),~website>)]
+
+rule LE_regPubKey:
+	[In(pubkey),Fr(~id)]
+	-->
+	[!LE_Reg(~id,pubkey)]
+
+rule LE_updateReg:
+	let msg = <newKey, oldKey>
+	in
+	[In(<msg,sig>),!LE_Reg(~id,oldKey)]
+	--[Eq(verify(sig,msg,oldKey),true)]->
+	[!LE_Reg(~id,newKey)]
+
+rule USR_Claim:
+	let msg =< pk(~usersk),~website>
+	in
+	[!Usr(~usersk,~website)]
+	--[OnceOnly('USR_Claim')]->
+	[Out(<msg,sign(msg,'0',~usersk)>)]
+
+rule LE_claim:
+	let msg = <pubkey,website>
+	in
+	[In(<msg,sig>), Fr(~nonce), !LE_Pri(~ltk),!LE_Reg(~id,pubkey)]
+	--[Eq(verify(sig,msg,pubkey),true)]->
+	[LE_Cha(~nonce,website,~id),Out(<~nonce,sign(~nonce,'0',~ltk)>)]
+
+rule USR_Chal:
+	let msg = <~website,'ready'>
+	in
+	[!Usr(~usrsk,~website),!LE_Pub(lepubkey),In(<nonce,sig>)]
+	--[Eq(verify(sig,nonce,lepubkey),true),OnceOnly('USR_Chal')]->
+	[!DNS(~website,h(<pk(~usrsk),nonce>))
+	, Out(<msg,sign(msg,'0',~usrsk)>)]
+
+rule publicDNS:
+	[!DNS(web,val)]-->[Out(<web,val>)]
+
+rule LE_runCha:
+	let msg = <website,'ready'>
+        val = h(<pubkey,~nonce>)
+	in
+	//DNS is Persistant as it doesn't age out!
+	[!LE_Pri(~ltk),In(<msg,sig>),LE_Cha(~nonce,website,~id),!LE_Reg(~id,pubkey),!DNS(website,val)]
+	--[ Eq(verify(sig,msg,pubkey),true)
+	  , LEIssuesChallenge()
+	]->
+	[Out(sign(<website,pubkey>,'0',~ltk))]
+
+rule USR_Fin:
+	[!Usr(~usrsk,~website),!LE_Pub(lepubkey),In(sig)]
+	--[Eq(verify(sig,<~website,pk(~usrsk)>,lepubkey),true)
+	   , HonestUserFinishes(),OnceOnly('USR_Fin')]->
+	[]
+
+rule atk_wins:
+	//Attacker wins if they know the secret key for a website!
+	[In(<secKey,sig,website>), !LE_Pub(LEpk)]
+	--[Eq(verify(sig,<website,pk(secKey)>,LEpk),true),AttackerWins()]->
+	[]
+
+restriction OnceOnly:
+	"
+	All x #i #j . OnceOnly(x) @ i & OnceOnly(x) @ j ==> #i = #j
+	"
+
+
+restriction equality:
+	"
+	All x y #i . Eq(x,y) @ i ==> x = y
+	"
+
+lemma no_winning:
+	"
+	not Ex #i . AttackerWins() @ i
+	"
+
+/*
+Spare Lemmas
+These lemmas test the correctness of the model by ensuring
+intended traces can ocurr.
+
+lemma functionalC:
+	exists-trace
+	"
+	Ex #i . LEIssuesChallenge() @ i
+	"
+
+
+lemma functionalU:
+	exists-trace
+	"
+	Ex #i . HonestUserFinishes() @ i
+	"
+*/
+end

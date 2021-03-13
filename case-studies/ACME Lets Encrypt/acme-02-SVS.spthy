@@ -1,0 +1,149 @@
+/*
+ * Running Time: <1 seconds
+ * Special Arguments or Flags: None
+ * Symbolic Model: SVS, Symbolic Model for Verification
+ */
+
+theory ACME_02_SVS
+begin
+
+builtins: hashing
+functions: sign/3, pk/1, true/0, false/0
+
+functions: mangle/2
+equations: mangle(sign(m,r1,sk),r2) = sign(m,r2,sk)
+
+functions: e1/1 [private]
+functions: e2/1 [private]
+functions: e3/1 [private]
+equations: e1(sign(x,y,z)) = x
+equations: e2(sign(x,y,z)) = y
+equations: e3(sign(x,y,z)) = z
+
+rule reSign:
+  [In(<sk1,r1>), In(sign(m,r2,sk2))]
+  -->
+  [Out(sign(m,r1,sk1))]
+
+restriction Correctness:
+    "
+    All sig tm tpk #i #j .
+        GoodKey(tpk) @ i & Verified(sig,tm,tpk,tm,tpk,false) @ j
+        ==>
+        F
+    "
+
+restriction NoForgery:
+    "
+    All tpk tm spk sm sig #i #j .
+        GoodKey(tpk) @ i & Verified(sig,sm,spk,tm,tpk,true) @ j
+        ==>
+        sm = tm & spk = tpk
+    "
+
+restriction Consistency:
+    "
+    All sig sm spk tm tpk r1 r2 #i #j .
+        Verified(sig,sm,spk,tm,tpk,r1) @ i & Verified(sig,sm,spk,tm,tpk,r2) @ j
+        ==>
+        r1 = r2
+    "
+
+rule setupLE:
+	[Fr(~ltk)]
+	--[OnceOnly('SetupLE'),GoodKey(pk(~ltk))]->
+	[Out(pk(~ltk)),!LE_Pub(pk(~ltk)),!LE_Pri(~ltk)]
+
+rule USR_Reg:
+	[Fr(~usersk),Fr(~website)]
+	--[OnceOnly('USR_Reg'),GoodKey(pk(~usersk))]->
+	[!Usr(~usersk,~website),Out(<pk(~usersk),~website>)]
+
+rule LE_regPubKey:
+	[In(pubkey),Fr(~id)]
+	-->
+	[!LE_Reg(~id,pubkey)]
+
+rule LE_updateReg:
+	let msg = <newKey, oldKey>
+	in
+	[In(<msg,sig>),!LE_Reg(~id,oldKey)]
+	--[Verified(sig,e1(sig),pk(e3(sig)),msg,oldKey,true)]->
+	[!LE_Reg(~id,newKey)]
+
+rule USR_Claim:
+	let msg =< pk(~usersk),~website>
+	in
+	[!Usr(~usersk,~website)]
+	--[OnceOnly('USR_Claim')]->
+	[Out(<msg,sign(msg,'0',~usersk)>)]
+
+rule LE_claim:
+	let msg = <pubkey,website>
+	in
+	[In(<msg,sig>), Fr(~nonce), !LE_Pri(~ltk),!LE_Reg(~id,pubkey)]
+	--[Verified(sig,e1(sig),pk(e3(sig)),msg,pubkey,true)]->
+	[LE_Cha(~nonce,website,~id),Out(<~nonce,sign(~nonce,'0',~ltk)>)]
+
+rule USR_Chal:
+	let msg = <~website,'ready'>
+	in
+	[!Usr(~usrsk,~website),!LE_Pub(lepubkey),In(<nonce,sig>)]
+	--[Verified(sig,e1(sig),pk(e3(sig)),nonce,lepubkey,true),OnceOnly('USR_Chal')]->
+	[!DNS(~website,h(<pk(~usrsk),nonce>))
+	, Out(<msg,sign(msg,'0',~usrsk)>)]
+
+rule publicDNS:
+	[!DNS(web,val)]-->[Out(<web,val>)]
+
+rule LE_runCha:
+	let msg = <website,'ready'>
+		val = h(<pubkey,~nonce>)
+	in
+	//DNS is Persistant as it doesn't age out!
+	[!LE_Pri(~ltk),In(<msg,sig>),LE_Cha(~nonce,website,~id),!LE_Reg(~id,pubkey),!DNS(website,val)]
+	--[ Verified(sig,e1(sig),pk(e3(sig)),msg,pubkey,true)
+	  , LEIssuesChallenge()
+	]->
+	[Out(sign(<website,pubkey>,'0',~ltk))]
+
+rule USR_Fin:
+	[!Usr(~usrsk,~website),!LE_Pub(lepubkey),In(sig)]
+	--[Verified(sig,e1(sig),pk(e3(sig)),<~website,pk(~usrsk)>,lepubkey,true)
+	   , HonestUserFinishes(),OnceOnly('USR_Fin')]->
+	[]
+
+rule atk_wins:
+	[In(<secKey,sig,website>), !LE_Pub(LEpk)]
+	--[Verified(sig,e1(sig),pk(e3(sig)),<website,pk(secKey)>,LEpk,true),AttackerWins()]->
+	[]
+
+restriction OnceOnly:
+	"
+	All x #i #j . OnceOnly(x) @ i & OnceOnly(x) @ j ==> #i = #j
+	"
+
+lemma no_winning:
+	"
+	not Ex #i . AttackerWins() @ i
+	"
+
+/*
+Spare Lemmas
+These lemmas test the correctness of the model by ensuring
+intended traces can ocurr.
+
+lemma functionalC:
+	exists-trace
+	"
+	Ex #i . LEIssuesChallenge() @ i
+	"
+
+
+lemma functionalU:
+	exists-trace
+	"
+	Ex #i . HonestUserFinishes() @ i
+	"
+*/
+end

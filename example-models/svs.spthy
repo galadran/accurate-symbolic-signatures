@@ -1,0 +1,58 @@
+/*
+ * There are then two requirements on the modeller, compared to the normal use of
+ * signatures. Firstly, where the protocol honestly generates a key (even if it
+ * later becomes known to the attacker), these rules must be marked with the
+ * GoodKey(X) action where X is the public key which was honestly generated.
+ * Secondly, where the protocol wishes to test the outcome of verification, the
+ * following action must be added to the rule:
+ *     Verified(sig,e1(sig),e3(sig),msg,pk,r) 
+ * where:
+ *     sig is the signature being tested
+ *     msg is the message being tested
+ *     pk is the public key being tested
+ *     r is the expected result (true,false)
+ * Failure to annotate these action labels will not lead to a false proof, rather
+ * it may only lead to a false attack, as each label only reduces the capability
+ * of the attacker.
+ */
+
+functions: sign/3, pk/1, true/0, false/0
+
+functions: mangle/2
+equations: mangle(sign(m,r1,sk),r2) = sign(m,r2,sk)
+
+functions: e1/1 [private]
+functions: e2/1 [private]
+functions: e3/1 [private]
+equations: e1(sign(x,y,z)) = x
+equations: e2(sign(x,y,z)) = y
+equations: e3(sign(x,y,z)) = z
+
+rule reSign:
+[In(<sk1,r1>), In(sign(m,r2,sk2))]
+-->
+[Out(sign(m,r1,sk1))]
+
+restriction Correctness:
+"
+All sig tm tpk #i #j .
+GoodKey(tpk) @ i & Verified(sig,tm,tpk,tm,tpk,false) @ j
+==>
+F
+"
+
+restriction NoForgery:
+"
+All tpk tm spk sm sig #i #j .
+GoodKey(tpk) @ i & Verified(sig,sm,spk,tm,tpk,true) @ j
+==>
+sm = tm & spk = tpk
+"
+
+restriction Consistency:
+"
+All sig sm spk tm tpk r1 r2 #i #j .
+Verified(sig,sm,spk,tm,tpk,r1) @ i & Verified(sig,sm,spk,tm,tpk,r2) @ j
+==>
+r1 = r2
+"
